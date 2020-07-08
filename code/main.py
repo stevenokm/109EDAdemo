@@ -52,7 +52,10 @@ parser.add_argument(
     metavar='N',
     help='number of data loading workers (default: 4)')
 parser.add_argument(
-    '--duplicate', default=1, type=int, help='number of duplication of dataset')
+    '--duplicate',
+    default=1,
+    type=int,
+    help='number of duplication of dataset')
 
 args = parser.parse_args()
 
@@ -63,6 +66,7 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 complement_learning_rate = args.lr
+num_classes = 256
 
 if use_cuda:
     # data parallel
@@ -76,9 +80,9 @@ print('==> Preparing SEM data..')
 
 traindir = os.path.join('./SEM', 'train')
 testdir = os.path.join('./SEM', 'train')
-normalize = transforms.Normalize(
-    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-
+#normalize = transforms.Normalize(
+#    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#
 #transforms_list_train = transforms.Compose([
 #    transforms.RandomResizedCrop(224),
 #    transforms.RandomHorizontalFlip(),
@@ -93,7 +97,10 @@ transforms_list_train = transforms.Compose([
 train_dataset = torchvision.datasets.ImageFolder(traindir,
                                                  transforms_list_train)
 for i in range(args.duplicate - 1):
-    train_dataset = torch.utils.data.ConcatDataset([train_dataset, torchvision.datasets.ImageFolder(traindir,transforms_list_train)])
+    train_dataset = torch.utils.data.ConcatDataset([
+        train_dataset,
+        torchvision.datasets.ImageFolder(traindir, transforms_list_train)
+    ])
 
 train_sampler = None
 #if args.distributed:
@@ -145,7 +152,7 @@ else:
     #net = PreActResNet18()
     print('==> Building model.. ResNext50')
     start_epoch = 0
-    net = resnext50_32x4d()
+    net = resnext50_32x4d(num_classes=num_classes)
 
 result_folder = './results/'
 if not os.path.exists(result_folder):
@@ -168,7 +175,7 @@ optimizer = optim.SGD(
     momentum=0.9,
     weight_decay=args.decay)
 
-complement_criterion = ComplementEntropy()
+complement_criterion = ComplementEntropy(classes=num_classes)
 complement_optimizer = optim.SGD(
     net.parameters(),
     lr=complement_learning_rate,
