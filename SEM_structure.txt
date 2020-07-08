@@ -1,0 +1,21 @@
+SEM
+├── test
+└── train
+    ├── 14
+    │   ├── test_14_Left.tif
+    │   ├── test_14_Right.tif
+    │   └── test_14_Top.tif
+    ├── 255
+    │   ├── test_255__left.tiff
+    │   ├── test_255_right.tiff
+    │   └── test_255_top.tiff
+    ├── 37
+    │   ├── test_37_left.tiff
+    │   ├── test_37_right.tiff
+    │   └── test_37_top.tiff
+    └── 76
+        ├── test_76_left.tif
+        ├── test_76_right.tif
+        └── test_76_top.tif
+
+6 directories, 12 files
