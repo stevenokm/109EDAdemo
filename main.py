@@ -23,39 +23,43 @@ from COT import *
 
 parser = argparse.ArgumentParser(
     description='PyTorch Complement Objective Training (COT)')
-parser.add_argument(
-    '--COT',
-    '-c',
-    action='store_true',
-    help='Using Complement Objective Training (COT)')
-parser.add_argument(
-    '--resume', '-r', action='store_true', help='resume from checkpoint')
+parser.add_argument('--COT',
+                    '-c',
+                    action='store_true',
+                    help='Using Complement Objective Training (COT)')
+parser.add_argument('--resume',
+                    '-r',
+                    action='store_true',
+                    help='resume from checkpoint')
 parser.add_argument('--sess', default='default', type=str, help='session id')
 parser.add_argument('--seed', default=11111, type=int, help='rng seed')
-parser.add_argument(
-    '--decay', default=1e-4, type=float, help='weight decay (default=1e-4)')
-parser.add_argument(
-    '--lr', default=0.1, type=float, help='initial learning rate')
-parser.add_argument(
-    '--batch-size',
-    '-b',
-    default=128,
-    type=int,
-    help='mini-batch size (default: 128)')
-parser.add_argument(
-    '--epochs', default=200, type=int, help='number of total epochs to run')
-parser.add_argument(
-    '-j',
-    '--workers',
-    default=8,
-    type=int,
-    metavar='N',
-    help='number of data loading workers (default: 4)')
-parser.add_argument(
-    '--duplicate',
-    default=1,
-    type=int,
-    help='number of duplication of dataset')
+parser.add_argument('--decay',
+                    default=1e-4,
+                    type=float,
+                    help='weight decay (default=1e-4)')
+parser.add_argument('--lr',
+                    default=0.1,
+                    type=float,
+                    help='initial learning rate')
+parser.add_argument('--batch-size',
+                    '-b',
+                    default=128,
+                    type=int,
+                    help='mini-batch size (default: 128)')
+parser.add_argument('--epochs',
+                    default=200,
+                    type=int,
+                    help='number of total epochs to run')
+parser.add_argument('-j',
+                    '--workers',
+                    default=8,
+                    type=int,
+                    metavar='N',
+                    help='number of data loading workers (default: 4)')
+parser.add_argument('--duplicate',
+                    default=1,
+                    type=int,
+                    help='number of duplication of dataset')
 
 args = parser.parse_args()
 
@@ -66,7 +70,7 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 complement_learning_rate = args.lr
-num_classes = 256
+num_classes = 35
 
 if use_cuda:
     # data parallel
@@ -78,8 +82,8 @@ if use_cuda:
 # Data SEM
 print('==> Preparing SEM data..')
 
-traindir = os.path.join('./SEM', 'train')
-testdir = os.path.join('./SEM', 'train')
+traindir = os.path.join('./sd_GSCmdV2', 'train')
+testdir = os.path.join('./sd_GSCmdV2', 'test')
 #normalize = transforms.Normalize(
 #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 #
@@ -88,18 +92,34 @@ testdir = os.path.join('./SEM', 'train')
 #    transforms.RandomHorizontalFlip(),
 #    transforms.ToTensor(), normalize
 #])
-transforms_list_train = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor()
-])
+transforms_list_train = transforms.Compose([transforms.ToTensor()])
+img_extensions = '.gif'
 
-train_dataset = torchvision.datasets.ImageFolder(traindir,
-                                                 transforms_list_train)
+
+def gif_loader(path):
+    from torchvision import get_image_backend
+    from PIL import Image
+
+    def pil_loader(path):
+        if __debug__:
+            print("loading {}".format(path))
+        with open(path, 'rb') as f:
+            img = Image.open(f)
+            return img.convert('RGB')
+
+    if __debug__:
+        print('{} uses PIL'.format(path))
+    return pil_loader(path)
+
+
+train_dataset = torchvision.datasets.DatasetFolder(traindir, gif_loader,
+                                                   img_extensions,
+                                                   transforms_list_train)
 for i in range(args.duplicate - 1):
     train_dataset = torch.utils.data.ConcatDataset([
         train_dataset,
-        torchvision.datasets.ImageFolder(traindir, transforms_list_train)
+        torchvision.datasets.DatasetFolder(traindir, gif_loader, img_extensions,
+                                           transforms_list_train)
     ])
 
 train_sampler = None
@@ -107,41 +127,37 @@ train_sampler = None
 #    train_sampler = torch.utils.data.distributed.DistributedSampler(
 #        train_dataset)
 
-trainloader = torch.utils.data.DataLoader(
-    train_dataset,
-    batch_size=args.batch_size,
-    shuffle=(train_sampler is None),
-    num_workers=args.workers,
-    pin_memory=True,
-    sampler=train_sampler)
+trainloader = torch.utils.data.DataLoader(train_dataset,
+                                          batch_size=args.batch_size,
+                                          shuffle=(train_sampler is None),
+                                          num_workers=args.workers,
+                                          pin_memory=True,
+                                          sampler=train_sampler)
 
 #transforms_list_test =transforms.Compose([
 #                             transforms.Resize(256),
 #                             transforms.CenterCrop(224),
 #                             transforms.ToTensor(),
 #                             normalize])
-transforms_list_test = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor()
-])
+transforms_list_test = transforms.Compose([transforms.ToTensor()])
 
-test_dataset = torchvision.datasets.ImageFolder(testdir, transforms_list_test)
+test_dataset = torchvision.datasets.DatasetFolder(testdir, gif_loader,
+                                                  img_extensions,
+                                                  transforms_list_test)
 
-testloader = torch.utils.data.DataLoader(
-    test_dataset,
-    batch_size=args.batch_size,
-    shuffle=False,
-    num_workers=args.workers,
-    pin_memory=True)
+testloader = torch.utils.data.DataLoader(test_dataset,
+                                         batch_size=args.batch_size,
+                                         shuffle=False,
+                                         num_workers=args.workers,
+                                         pin_memory=True)
 
 # Model
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load(
-        './checkpoint/ckpt.t7.' + args.sess + '_' + str(args.seed))
+    checkpoint = torch.load('./checkpoint/ckpt.t7.' + args.sess + '_' +
+                            str(args.seed))
     net = checkpoint['net']
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch'] + 1
@@ -169,18 +185,16 @@ if use_cuda:
     print('Using CUDA..')
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(
-    net.parameters(),
-    lr=base_learning_rate,
-    momentum=0.9,
-    weight_decay=args.decay)
+optimizer = optim.SGD(net.parameters(),
+                      lr=base_learning_rate,
+                      momentum=0.9,
+                      weight_decay=args.decay)
 
 complement_criterion = ComplementEntropy(classes=num_classes)
-complement_optimizer = optim.SGD(
-    net.parameters(),
-    lr=complement_learning_rate,
-    momentum=0.9,
-    weight_decay=args.decay)
+complement_optimizer = optim.SGD(net.parameters(),
+                                 lr=complement_learning_rate,
+                                 momentum=0.9,
+                                 weight_decay=args.decay)
 
 # Training
 
@@ -211,10 +225,10 @@ def train(epoch):
         correct += predicted.eq(targets.data).cpu().sum()
         correct = correct.item()
 
-        progress_bar(batch_idx, len(trainloader),
-                     'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                     (train_loss / (batch_idx + 1), 100. * correct / total,
-                      correct, total))
+        progress_bar(
+            batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+            (train_loss /
+             (batch_idx + 1), 100. * correct / total, correct, total))
 
         # COT Implementation
         if args.COT:
@@ -258,10 +272,10 @@ def test(epoch):
             correct += predicted.eq(targets.data).cpu().sum()
             correct = correct.item()
 
-            progress_bar(batch_idx, len(testloader),
-                         'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                         (test_loss / (batch_idx + 1), 100. * correct / total,
-                          correct, total))
+            progress_bar(
+                batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (test_loss /
+                 (batch_idx + 1), 100. * correct / total, correct, total))
 
     # Save checkpoint.
     acc = 100. * correct / total
