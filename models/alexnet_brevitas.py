@@ -1,4 +1,4 @@
-from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantHardTanh, QuantConv1d
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d, QuantScaleBias
 from brevitas.quant.binary import *
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -9,8 +9,8 @@ __all__ = ['alexnet_binary']
 class AlexNetOWT_BN(nn.Module):
     def __init__(self, num_classes=1000, input_channels=3):
         super(AlexNetOWT_BN, self).__init__()
-        self.weight_quant=SignedBinaryWeightPerTensorConst
-        self.act_quant=SignedBinaryActPerTensorConst
+        self.weight_quant = SignedBinaryWeightPerTensorConst
+        self.act_quant = SignedBinaryActPerTensorConst
         self.ratioInfl = 0.5
         self.depth = 8
         self.embedding_factor = 4
@@ -21,7 +21,9 @@ class AlexNetOWT_BN(nn.Module):
                         kernel_size=23,
                         dilation=7),
             QuantMaxPool1d(kernel_size=5, padding=2),
-            nn.BatchNorm1d(int(512 * self.ratioInfl)),
+            QuantScaleBias(int(512 * self.ratioInfl),
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(int(512 * self.ratioInfl),
                         int(512 * self.ratioInfl),
@@ -29,7 +31,9 @@ class AlexNetOWT_BN(nn.Module):
                         kernel_size=13,
                         dilation=3),
             QuantMaxPool1d(kernel_size=3, padding=1),
-            nn.BatchNorm1d(int(512 * self.ratioInfl)),
+            QuantScaleBias(int(512 * self.ratioInfl),
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(int(512 * self.ratioInfl),
                         int(512 * self.ratioInfl),
@@ -37,14 +41,18 @@ class AlexNetOWT_BN(nn.Module):
                         kernel_size=7,
                         dilation=2),
             QuantMaxPool1d(kernel_size=3, padding=1),
-            nn.BatchNorm1d(int(512 * self.ratioInfl)),
+            QuantScaleBias(int(512 * self.ratioInfl),
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(int(512 * self.ratioInfl),
                         int(512 * self.ratioInfl),
                         weight_quant=self.weight_quant,
                         kernel_size=5,
                         dilation=1),
-            nn.BatchNorm1d(int(512 * self.ratioInfl)),
+            QuantScaleBias(int(512 * self.ratioInfl),
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(int(512 * self.ratioInfl),
                         int(512 * self.ratioInfl),
@@ -52,7 +60,9 @@ class AlexNetOWT_BN(nn.Module):
                         kernel_size=5,
                         dilation=1),
             QuantMaxPool1d(kernel_size=3, padding=1),
-            nn.BatchNorm1d(int(512 * self.ratioInfl)),
+            QuantScaleBias(int(512 * self.ratioInfl),
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(int(512 * self.ratioInfl),
                         self.depth,
@@ -64,23 +74,29 @@ class AlexNetOWT_BN(nn.Module):
             #               kernel_size=5,
             #               dilation=2),
             QuantMaxPool1d(kernel_size=3, padding=1),
-            nn.BatchNorm1d(self.depth),
+            QuantScaleBias(self.depth,
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant))
         self.classifier = nn.Sequential(
             QuantLinear(self.depth * self.embedding_factor,
                         self.depth * 64,
                         bias=False,
                         weight_quant=self.weight_quant),
-            nn.BatchNorm1d(self.depth * 64),
+            QuantScaleBias(self.depth * 64,
+                           bias=True,
+                           weight_quant=self.weight_quant),
             QuantHardTanh(act_quant=self.act_quant),
             #nn.Dropout(0.5),
             QuantLinear(self.depth * 64,
                         num_classes,
                         bias=False,
                         weight_quant=self.weight_quant),
-            nn.BatchNorm1d(num_classes),
+            QuantScaleBias(num_classes,
+                           bias=True,
+                           weight_quant=self.weight_quant),
             #nn.LogSoftmax()
-            )
+        )
 
         #self.regime = {
         #    0: {'optimizer': 'SGD', 'lr': 1e-2,
