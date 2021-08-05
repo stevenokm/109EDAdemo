@@ -91,6 +91,6 @@ def WAV2Numpy(folder, sr=None):
         #np.info(y_bitmap)
         im = Image.fromarray(y_bitmap, mode='RGB')
         im.save(file + '.bmp')
-        np.savetxt(file + '.csv', y_int16,  delimiter=',')
+        np.savetxt(file + '.csv', y_int16, fmt='%d', delimiter=',')
 
         os.remove(file)
