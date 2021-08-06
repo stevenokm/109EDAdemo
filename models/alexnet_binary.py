@@ -8,82 +8,73 @@ __all__ = ['alexnet_binary']
 class AlexNetOWT_BN(nn.Module):
     def __init__(self, num_classes=1000, input_channels=3):
         super(AlexNetOWT_BN, self).__init__()
-        self.ratioInfl = 2
+        self.ratioInfl = 1
         self.convDepth = 32
-        self.depth = 16
-        self.embedding_factor = 52
+        self.fcDepth = 16
+        self.embedding_factor = 87360 // 32
         self.cell_kernel_size = 41
         self.features = nn.Sequential(
-            nn.BatchNorm1d(input_channels),
+            #nn.BatchNorm1d(input_channels),
             nn.Hardtanh(inplace=True),
             BinarizeConv1d(input_channels,
                            int(self.convDepth * self.ratioInfl),
                            kernel_size=self.cell_kernel_size,
-                           dilation=2),
-            nn.MaxPool1d(kernel_size=3),
-
+                           dilation=1),
+            #nn.MaxPool1d(kernel_size=2),
             nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
             nn.Hardtanh(inplace=True),
             BinarizeConv1d(int(self.convDepth * self.ratioInfl),
                            int(self.convDepth * self.ratioInfl),
                            kernel_size=self.cell_kernel_size,
                            dilation=2),
-            nn.MaxPool1d(kernel_size=3),
-
+            #nn.MaxPool1d(kernel_size=2),
             nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
             nn.Hardtanh(inplace=True),
             BinarizeConv1d(int(self.convDepth * self.ratioInfl),
                            int(self.convDepth * self.ratioInfl),
                            kernel_size=self.cell_kernel_size,
-                           dilation=2),
-            nn.MaxPool1d(kernel_size=3),
-
-            #nn.BatchNorm1d(int(384 * self.ratioInfl)),
-            #nn.Hardtanh(inplace=True),
-            #BinarizeConv1d(int(384 * self.ratioInfl),
-            #               int(384 * self.ratioInfl),
-            #               kernel_size=3,
-            #               dilation=1),
-            #nn.MaxPool1d(kernel_size=3),
-
+                           dilation=4),
+            #nn.MaxPool1d(kernel_size=2),
             nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
             nn.Hardtanh(inplace=True),
             BinarizeConv1d(int(self.convDepth * self.ratioInfl),
                            int(self.convDepth * self.ratioInfl),
                            kernel_size=self.cell_kernel_size,
-                           dilation=2),
-            nn.MaxPool1d(kernel_size=3),
-
-            #nn.BatchNorm1d(int(768 * self.ratioInfl)),
-            #nn.Hardtanh(inplace=True),
-            #BinarizeConv1d(int(768 * self.ratioInfl),
-            #               int(768 * self.ratioInfl),
-            #               kernel_size=3,
-            #               dilation=1),
-            #nn.MaxPool1d(kernel_size=3),
-
-            #nn.BatchNorm1d(int(768 * self.ratioInfl)),
-            #nn.Hardtanh(inplace=True),
-            #BinarizeConv1d(int(768 * self.ratioInfl),
-            #               int(768 * self.ratioInfl),
-            #               kernel_size=3,
-            #               dilation=1),
-            #nn.MaxPool1d(kernel_size=3),
-
+                           dilation=8),
+            #nn.MaxPool1d(kernel_size=2),
             nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
             nn.Hardtanh(inplace=True),
             BinarizeConv1d(int(self.convDepth * self.ratioInfl),
-                           int(self.depth * self.ratioInfl),
+                           int(self.convDepth * self.ratioInfl),
                            kernel_size=self.cell_kernel_size,
-                           dilation=2),
-            nn.MaxPool1d(kernel_size=3))
+                           dilation=16),
+            #nn.MaxPool1d(kernel_size=2),
+            nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
+            nn.Hardtanh(inplace=True),
+            BinarizeConv1d(int(self.convDepth * self.ratioInfl),
+                           int(self.convDepth * self.ratioInfl),
+                           kernel_size=self.cell_kernel_size,
+                           dilation=32),
+            #nn.MaxPool1d(kernel_size=2),
+            nn.BatchNorm1d(int(self.convDepth * self.ratioInfl)),
+            nn.Hardtanh(inplace=True),
+            BinarizeConv1d(int(self.convDepth * self.ratioInfl),
+                           int(self.fcDepth * self.ratioInfl),
+                           kernel_size=self.cell_kernel_size,
+                           dilation=64),
+            nn.MaxPool1d(kernel_size=4))
         self.classifier = nn.Sequential(
-            BinarizeLinear(self.depth * self.embedding_factor,
-                           self.depth * 64),
-            nn.BatchNorm1d(self.depth * 64),
-            nn.Hardtanh(inplace=True),
+            #BinarizeLinear(self.fcDepth * self.embedding_factor,
+            #               self.fcDepth * 128),
+            #nn.BatchNorm1d(self.fcDepth * 128),
+            #nn.Hardtanh(inplace=True),
+            #BinarizeLinear(self.fcDepth * 128,
+            #               self.fcDepth * 32),
+            #nn.BatchNorm1d(self.fcDepth * 32),
+            #nn.Hardtanh(inplace=True),
             #nn.Dropout(0.5),
-            BinarizeLinear(self.depth * 64, num_classes),
+            #BinarizeLinear(self.fcDepth * 32, num_classes),
+            BinarizeLinear(self.fcDepth * self.embedding_factor, num_classes),
             nn.BatchNorm1d(num_classes),
             nn.LogSoftmax())
 
@@ -133,7 +124,7 @@ class AlexNetOWT_BN(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = x.view(-1, self.depth * self.embedding_factor)
+        x = x.view(-1, self.fcDepth * self.embedding_factor)
         x = self.classifier(x)
         return x
 

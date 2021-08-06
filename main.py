@@ -13,6 +13,8 @@ import torchvision
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 
+from torchsummary import summary
+
 import os
 import argparse
 import csv
@@ -195,6 +197,8 @@ if use_cuda:
     cudnn.benchmark = True
     print('Using CUDA..')
 
+summary(net, (16, 16000))
+
 criterion = nn.CrossEntropyLoss()
 #optimizer = optim.SGD(net.parameters(),
 #                      lr=base_learning_rate,
@@ -319,16 +323,10 @@ def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
 
     lr = base_learning_rate
-    #if epoch <= 9 and lr > 0.1:
-    #    # warm-up training for large minibatch
-    #    lr = 0.1 + (base_learning_rate - 0.1) * epoch / 10.
-    #if epoch >= 100:
-    #    lr /= 10
-    #if epoch >= 150:
-    #    lr /= 10
-    if epoch % 5 == 0 and epoch >= 5:
+    if epoch >= 3:
         lr /= 10
-        lr = max(lr, 0.0001)
+    if epoch >= 9:
+        lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
