@@ -11,7 +11,7 @@
 export CUDA_VISIBLE_DEVICES=0
 python3.6 -O main.py \
   --batch-size 32 \
-  --workers 8 \
+  --workers 16 \
   --lr 0.1 \
   --epochs 15 \
   --seed 11111 \
