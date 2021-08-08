@@ -13,6 +13,8 @@ import torchvision
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 
+from torchsummary import summary
+
 import os
 import argparse
 import csv
@@ -73,20 +75,20 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 complement_learning_rate = args.lr
-num_classes = 35
-data_quantize_bits = 4  # in power of 2, 0 <= bins <= 16
+num_classes = 10
+data_quantize_bits = 4 # in power of 2, 0 <= bins <= 16
 
 if use_cuda:
     # data parallel
     n_gpu = torch.cuda.device_count()
     batch_size *= n_gpu
-    base_learning_rate *= n_gpu
-    complement_learning_rate *= n_gpu
+    #base_learning_rate *= n_gpu
+    #complement_learning_rate *= n_gpu
 
 # Data SEM
 print('==> Preparing SEM data..')
 
-traindir = os.path.join('./sd_GSCmdV2', 'train')
+traindir = os.path.join('./sd_GSCmdV2', 'train_10')
 testdir = os.path.join('./sd_GSCmdV2', 'test')
 #normalize = transforms.Normalize(
 #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -189,7 +191,8 @@ logname = result_folder + net.__class__.__name__ + \
     '_' + args.sess + '_' + str(args.seed) + '.csv'
 
 if use_cuda:
-    net.cuda()
+    net.to('cuda')
+    summary(net, ((1 << data_quantize_bits), 16000))
     net = torch.nn.DataParallel(net)
     print('Using', torch.cuda.device_count(), 'GPUs.')
     cudnn.benchmark = True
@@ -319,16 +322,10 @@ def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
 
     lr = base_learning_rate
-    #if epoch <= 9 and lr > 0.1:
-    #    # warm-up training for large minibatch
-    #    lr = 0.1 + (base_learning_rate - 0.1) * epoch / 10.
-    #if epoch >= 100:
-    #    lr /= 10
-    #if epoch >= 150:
-    #    lr /= 10
-    if epoch % 5 == 0 and epoch >= 5:
+    if epoch >= 3:
         lr /= 10
-        lr = max(lr, 0.0001)
+    if epoch >= 9:
+        lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
