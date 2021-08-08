@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import onnx
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,12 +13,16 @@ import torchvision
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 
+from torchsummary import summary
+
 import os
 import argparse
 import csv
 
-from models.PreActResNet import *
-from models.resnext import resnext50_32x4d
+#from models.PreActResNet import *
+#from models.resnext import resnext50_32x4d
+#from models.alexnet_brevitas import AlexNetOWT_BN
+from models.alexnet_binary import AlexNetOWT_BN
 from utils import *
 from COT import *
 
@@ -55,7 +60,7 @@ parser.add_argument('-j',
                     default=8,
                     type=int,
                     metavar='N',
-                    help='number of data loading workers (default: 4)')
+                    help='number of data loading workers (default: 8)')
 parser.add_argument('--duplicate',
                     default=1,
                     type=int,
@@ -70,19 +75,20 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 complement_learning_rate = args.lr
-num_classes = 35
+num_classes = 10
+data_quantize_bits = 4 # in power of 2, 0 <= bins <= 16
 
 if use_cuda:
     # data parallel
     n_gpu = torch.cuda.device_count()
     batch_size *= n_gpu
-    base_learning_rate *= n_gpu
-    complement_learning_rate *= n_gpu
+    #base_learning_rate *= n_gpu
+    #complement_learning_rate *= n_gpu
 
 # Data SEM
 print('==> Preparing SEM data..')
 
-traindir = os.path.join('./sd_GSCmdV2', 'train')
+traindir = os.path.join('./sd_GSCmdV2', 'train_10')
 testdir = os.path.join('./sd_GSCmdV2', 'test')
 #normalize = transforms.Normalize(
 #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -93,33 +99,39 @@ testdir = os.path.join('./sd_GSCmdV2', 'test')
 #    transforms.ToTensor(), normalize
 #])
 transforms_list_train = transforms.Compose([transforms.ToTensor()])
-img_extensions = '.gif'
+img_extensions = '.csv'
 
 
-def gif_loader(path):
-    from torchvision import get_image_backend
-    from PIL import Image
+def csv_loader(path):
+    if not os.path.isfile(path + '.npy'):
+        y_int16 = np.loadtxt(path, dtype=np.int16, delimiter=',')
+        # save bitmaps of waveform to RGX png file
+        shape_rows = 16000
+        #y_uint8_high = (y_uint16 >> 8).reshape((shape_rows, -1)).astype(np.uint8)
+        #y_uint8_low = (y_uint16 & ((1 << (8 + 1)) - 1)).reshape(
+        #    (shape_rows, -1)).astype(np.uint8)
+        #y_bitmap = np.dstack(
+        #    (np.zeros_like(y_uint8_high,
+        #                   dtype=np.uint8), y_uint8_high, y_uint8_low))
+        bias = (1 << (16 - 1))  # 32768
+        y_uint16 = (y_int16.astype(np.int32) + bias).astype(np.uint16)
+        y_bins = (y_uint16 >> (16 - data_quantize_bits))
+        y_bitmap = np.eye((1 << data_quantize_bits))[y_bins]
+        y_bitmap = np.transpose(y_bitmap, (1, 0)).astype(np.float32)
+        #print(y_bitmap.shape)
+        np.save(path + '.npy', y_bitmap)
+    else:
+        y_bitmap = np.load(path + '.npy')
+    return y_bitmap
 
-    def pil_loader(path):
-        if __debug__:
-            print("loading {}".format(path))
-        with open(path, 'rb') as f:
-            img = Image.open(f)
-            return img.convert('RGB')
 
-    if __debug__:
-        print('{} uses PIL'.format(path))
-    return pil_loader(path)
-
-
-train_dataset = torchvision.datasets.DatasetFolder(traindir, gif_loader,
-                                                   img_extensions,
-                                                   transforms_list_train)
+train_dataset = torchvision.datasets.DatasetFolder(traindir, csv_loader,
+                                                   img_extensions)
 for i in range(args.duplicate - 1):
     train_dataset = torch.utils.data.ConcatDataset([
         train_dataset,
-        torchvision.datasets.DatasetFolder(traindir, gif_loader, img_extensions,
-                                           transforms_list_train)
+        torchvision.datasets.DatasetFolder(traindir, csv_loader,
+                                           img_extensions)
     ])
 
 train_sampler = None
@@ -128,7 +140,7 @@ train_sampler = None
 #        train_dataset)
 
 trainloader = torch.utils.data.DataLoader(train_dataset,
-                                          batch_size=args.batch_size,
+                                          batch_size=batch_size,
                                           shuffle=(train_sampler is None),
                                           num_workers=args.workers,
                                           pin_memory=True,
@@ -141,12 +153,11 @@ trainloader = torch.utils.data.DataLoader(train_dataset,
 #                             normalize])
 transforms_list_test = transforms.Compose([transforms.ToTensor()])
 
-test_dataset = torchvision.datasets.DatasetFolder(testdir, gif_loader,
-                                                  img_extensions,
-                                                  transforms_list_test)
+test_dataset = torchvision.datasets.DatasetFolder(testdir, csv_loader,
+                                                  img_extensions)
 
 testloader = torch.utils.data.DataLoader(test_dataset,
-                                         batch_size=args.batch_size,
+                                         batch_size=100,
                                          shuffle=False,
                                          num_workers=args.workers,
                                          pin_memory=True)
@@ -166,9 +177,11 @@ else:
     #print('==> Building model.. (Default : PreActResNet18)')
     #start_epoch = 0
     #net = PreActResNet18()
-    print('==> Building model.. ResNext50')
+    print('==> Building model.. AlexNetOWT_BN')
     start_epoch = 0
-    net = resnext50_32x4d(num_classes=num_classes)
+    #net = resnext50_32x4d(num_classes=num_classes)
+    net = AlexNetOWT_BN(num_classes=num_classes,
+                        input_channels=(1 << data_quantize_bits))
 
 result_folder = './results/'
 if not os.path.exists(result_folder):
@@ -178,17 +191,21 @@ logname = result_folder + net.__class__.__name__ + \
     '_' + args.sess + '_' + str(args.seed) + '.csv'
 
 if use_cuda:
-    net.cuda()
+    net.to('cuda')
+    summary(net, ((1 << data_quantize_bits), 16000))
     net = torch.nn.DataParallel(net)
     print('Using', torch.cuda.device_count(), 'GPUs.')
     cudnn.benchmark = True
     print('Using CUDA..')
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(net.parameters(),
-                      lr=base_learning_rate,
-                      momentum=0.9,
-                      weight_decay=args.decay)
+#optimizer = optim.SGD(net.parameters(),
+#                      lr=base_learning_rate,
+#                      momentum=0.9,
+#                      weight_decay=args.decay)
+optimizer = optim.Adam(net.parameters(),
+                       lr=base_learning_rate,
+                       weight_decay=args.decay)
 
 complement_criterion = ComplementEntropy(classes=num_classes)
 complement_optimizer = optim.SGD(net.parameters(),
@@ -273,7 +290,8 @@ def test(epoch):
             correct = correct.item()
 
             progress_bar(
-                batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                batch_idx, len(testloader),
+                'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (test_loss /
                  (batch_idx + 1), 100. * correct / total, correct, total))
 
@@ -304,12 +322,9 @@ def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
 
     lr = base_learning_rate
-    if epoch <= 9 and lr > 0.1:
-        # warm-up training for large minibatch
-        lr = 0.1 + (base_learning_rate - 0.1) * epoch / 10.
-    if epoch >= 100:
+    if epoch >= 3:
         lr /= 10
-    if epoch >= 150:
+    if epoch >= 9:
         lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
