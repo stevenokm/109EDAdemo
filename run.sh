@@ -13,7 +13,7 @@ python3.6 -O main.py \
   --batch-size 32 \
   --workers 16 \
   --lr 0.1 \
-  --epochs 15 \
+  --epochs 50 \
   --seed 11111 \
   --sess baseline
 

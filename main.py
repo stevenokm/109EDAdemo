@@ -198,8 +198,6 @@ if use_cuda:
     cudnn.benchmark = True
     print('Using CUDA..')
 
-summary(net, (16, 16000))
-
 criterion = nn.CrossEntropyLoss()
 #optimizer = optim.SGD(net.parameters(),
 #                      lr=base_learning_rate,
@@ -324,9 +322,11 @@ def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
 
     lr = base_learning_rate
-    if epoch >= 3:
+    if epoch >= 10:
         lr /= 10
-    if epoch >= 9:
+    if epoch >= 30:
+        lr /= 10
+    if epoch >= 50:
         lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr

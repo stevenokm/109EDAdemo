@@ -57,11 +57,11 @@ class AlexNetOWT_BN(nn.Module):
                            kernel_size=self.cell_kernel_size,
                            dilation=2),
             nn.BatchNorm1d(int(self.convDepth3 * self.ratioInfl)),
-            nn.Hardtanh(inplace=True))
+            nn.Hardtanh(inplace=True),
             #nn.MaxPool1d(kernel_size=self.pullSize))
+        )
         self.classifier = nn.Sequential(
-            BinarizeLinear(self.embedding_factor,
-                           self.fcDepth),
+            BinarizeLinear(self.embedding_factor, self.fcDepth),
             #nn.Dropout(0.5),
             nn.BatchNorm1d(self.fcDepth),
             nn.Hardtanh(inplace=True),
