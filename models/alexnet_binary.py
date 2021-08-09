@@ -12,7 +12,7 @@ class AlexNetOWT_BN(nn.Module):
         self.convDepth1 = 64
         self.convDepth2 = 128
         self.convDepth3 = 128
-        self.fcDepth = 1024
+        self.fcDepth = 2048
         self.embedding_factor = int(19968 // 2)
         self.cell_kernel_size = 41
         self.pullSize1 = 3

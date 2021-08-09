@@ -21,8 +21,8 @@ import csv
 
 #from models.PreActResNet import *
 #from models.resnext import resnext50_32x4d
-#from models.alexnet_brevitas import AlexNetOWT_BN
-from models.alexnet_binary import AlexNetOWT_BN
+from models.alexnet_brevitas import AlexNetOWT_BN
+#from models.alexnet_binary import AlexNetOWT_BN
 from utils import *
 from COT import *
 
@@ -81,7 +81,7 @@ data_quantize_bits = 4 # in power of 2, 0 <= bins <= 16
 if use_cuda:
     # data parallel
     n_gpu = torch.cuda.device_count()
-    batch_size *= n_gpu
+    #batch_size *= n_gpu
     #base_learning_rate *= n_gpu
     #complement_learning_rate *= n_gpu
 
@@ -163,25 +163,24 @@ testloader = torch.utils.data.DataLoader(test_dataset,
                                          pin_memory=True)
 
 # Model
+#print('==> Building model.. (Default : PreActResNet18)')
+#start_epoch = 0
+#net = PreActResNet18()
+print('==> Building model.. AlexNetOWT_BN')
+start_epoch = 0
+#net = resnext50_32x4d(num_classes=num_classes)
+net = AlexNetOWT_BN(num_classes=num_classes,
+                    input_channels=(1 << data_quantize_bits))
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
     checkpoint = torch.load('./checkpoint/ckpt.t7.' + args.sess + '_' +
                             str(args.seed))
-    net = checkpoint['net']
+    net.load_state_dict(checkpoint['net'], strict=False)
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch'] + 1
     torch.set_rng_state(checkpoint['rng_state'])
-else:
-    #print('==> Building model.. (Default : PreActResNet18)')
-    #start_epoch = 0
-    #net = PreActResNet18()
-    print('==> Building model.. AlexNetOWT_BN')
-    start_epoch = 0
-    #net = resnext50_32x4d(num_classes=num_classes)
-    net = AlexNetOWT_BN(num_classes=num_classes,
-                        input_channels=(1 << data_quantize_bits))
 
 result_folder = './results/'
 if not os.path.exists(result_folder):
@@ -192,7 +191,7 @@ logname = result_folder + net.__class__.__name__ + \
 
 if use_cuda:
     net.to('cuda')
-    summary(net, ((1 << data_quantize_bits), 16000))
+    #summary(net, ((1 << data_quantize_bits), 16000))
     net = torch.nn.DataParallel(net)
     print('Using', torch.cuda.device_count(), 'GPUs.')
     cudnn.benchmark = True
@@ -307,7 +306,7 @@ def checkpoint(acc, epoch):
     # Save checkpoint.
     print('Saving..')
     state = {
-        'net': net,
+        'net': net.state_dict(),
         'acc': acc,
         'epoch': epoch,
         'rng_state': torch.get_rng_state()

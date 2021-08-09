@@ -11,28 +11,27 @@ class AlexNetOWT_BN(nn.Module):
         super(AlexNetOWT_BN, self).__init__()
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
+        self.bias_quant = SignedBinaryWeightPerTensorConst
+        self.input_quant = SignedBinaryActPerTensorConst
+        self.output_quant = SignedBinaryActPerTensorConst
         self.ratioInfl = 1
         self.convDepth1 = 64
-        self.convDepth2 = 128
+        self.convDepth2 = 256
         self.convDepth3 = 128
-        self.fcDepth = 1024
-        self.embedding_factor = int(19968 // 2)
-        self.cell_kernel_size = 41
+        self.fcDepth = 4096
+        self.embedding_factor = int(462848 // 32)
+        self.cell_kernel_size = 29
         self.pullSize1 = 3
         self.pullSize2 = 3
         self.features = nn.Sequential(
-            QuantScaleBias(input_channels,
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(input_channels),
             #QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(input_channels,
                         int(self.convDepth1 * self.ratioInfl),
                         weight_quant=self.weight_quant,
-                        kernel_size=41,
+                        kernel_size=79,
                         dilation=1),
-            QuantScaleBias(int(self.convDepth1 * self.ratioInfl),
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(int(self.convDepth1 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize1),
 
@@ -41,9 +40,7 @@ class AlexNetOWT_BN(nn.Module):
                         weight_quant=self.weight_quant,
                         kernel_size=self.cell_kernel_size,
                         dilation=2),
-            QuantScaleBias(int(self.convDepth1 * self.ratioInfl),
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(int(self.convDepth1 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2),
 
@@ -52,9 +49,7 @@ class AlexNetOWT_BN(nn.Module):
                         weight_quant=self.weight_quant,
                         kernel_size=self.cell_kernel_size,
                         dilation=2),
-            QuantScaleBias(int(self.convDepth2 * self.ratioInfl),
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(int(self.convDepth2 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2),
 
@@ -63,9 +58,7 @@ class AlexNetOWT_BN(nn.Module):
                         weight_quant=self.weight_quant,
                         kernel_size=self.cell_kernel_size,
                         dilation=2),
-            QuantScaleBias(int(self.convDepth2 * self.ratioInfl),
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(int(self.convDepth2 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2),
 
@@ -74,9 +67,7 @@ class AlexNetOWT_BN(nn.Module):
                         weight_quant=self.weight_quant,
                         kernel_size=self.cell_kernel_size,
                         dilation=2),
-            QuantScaleBias(int(self.convDepth3 * self.ratioInfl),
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(int(self.convDepth3 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             #QuantMaxPool1d(kernel_size=self.pullSize2),
         )
@@ -86,17 +77,13 @@ class AlexNetOWT_BN(nn.Module):
                         bias=False,
                         weight_quant=self.weight_quant),
             #nn.Dropout(0.5),
-            QuantScaleBias(self.fcDepth,
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(self.fcDepth),
             QuantHardTanh(act_quant=self.act_quant),
             QuantLinear(self.fcDepth,
                         num_classes,
                         bias=False,
                         weight_quant=self.weight_quant),
-            QuantScaleBias(num_classes,
-                           bias=True,
-                           weight_quant=self.weight_quant),
+            nn.BatchNorm1d(num_classes),
             #nn.LogSoftmax()
         )
 
@@ -146,7 +133,7 @@ class AlexNetOWT_BN(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = x.view(-1, smbedding_factor)
+        x = x.view(-1, self.embedding_factor)
         x = self.classifier(x)
         return x
 
