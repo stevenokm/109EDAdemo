@@ -18,7 +18,7 @@
 #  --sess baseline \
 #  $1
 
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 python3.6 -O main.py \
   --batch-size 32 \
   --workers 16 \

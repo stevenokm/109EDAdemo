@@ -81,9 +81,9 @@ data_quantize_bits = 4 # in power of 2, 0 <= bins <= 16
 if use_cuda:
     # data parallel
     n_gpu = torch.cuda.device_count()
-    #batch_size *= n_gpu
-    #base_learning_rate *= n_gpu
-    #complement_learning_rate *= n_gpu
+    batch_size *= n_gpu
+    base_learning_rate *= n_gpu
+    complement_learning_rate *= n_gpu
 
 # Data SEM
 print('==> Preparing SEM data..')
@@ -198,13 +198,13 @@ if use_cuda:
     print('Using CUDA..')
 
 criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD(net.parameters(),
-#                      lr=base_learning_rate,
-#                      momentum=0.9,
-#                      weight_decay=args.decay)
-optimizer = optim.Adam(net.parameters(),
-                       lr=base_learning_rate,
-                       weight_decay=args.decay)
+optimizer = optim.SGD(net.parameters(),
+                      lr=base_learning_rate,
+                      momentum=0.9,
+                      weight_decay=args.decay)
+#optimizer = optim.Adam(net.parameters(),
+#                       lr=base_learning_rate,
+#                       weight_decay=args.decay)
 
 complement_criterion = ComplementEntropy(classes=num_classes)
 complement_optimizer = optim.SGD(net.parameters(),
