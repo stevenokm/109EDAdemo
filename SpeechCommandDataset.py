@@ -128,6 +128,10 @@ class SpeechCommandDataset(SPEECHCOMMANDS):
                  task: str = None,
                  cache: bool = True,
                  data_quantize_bits: int = 4):
+
+        if not os.path.exists("sd_GSCmdV2/"):
+            os.makedirs("sd_GSCmdV2/")
+
         super().__init__("./sd_GSCmdV2", download=True)
 
         if task == '12cmd':
