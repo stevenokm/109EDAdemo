@@ -1,42 +1,40 @@
 from __future__ import print_function
 
-import onnx
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
 
-import torchvision
-import torchvision.transforms as transforms
-from torchvision.utils import save_image
-
-from torchsummary import summary
-
 import os
 import argparse
 import csv
+import copy
 
-#from models.PreActResNet import *
-#from models.resnext import resnext50_32x4d
-#from models.alexnet_brevitas import AlexNetOWT_BN
+from models.alexnet_brevitas import AlexNetOWT_BN_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
-from utils import *
-from COT import *
+from models.M5_brevitas import M5_brevitas
+from models.M11_brevitas import M11_brevitas
+from utils import progress_bar
+import SpeechCommandDataset
+
+import brevitas.onnx as bo
+from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import GiveReadableTensorNames
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.general import RemoveStaticGraphInputs
 
 parser = argparse.ArgumentParser(
     description='PyTorch Complement Objective Training (COT)')
-parser.add_argument('--COT',
-                    '-c',
-                    action='store_true',
-                    help='Using Complement Objective Training (COT)')
 parser.add_argument('--resume',
                     '-r',
                     action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--sess', default='default', type=str, help='session id')
+parser.add_argument('--optimizer', default='SGD', type=str, help='optimizer')
 parser.add_argument('--seed', default=11111, type=int, help='rng seed')
 parser.add_argument('--decay',
                     default=1e-4,
@@ -65,17 +63,26 @@ parser.add_argument('--duplicate',
                     default=1,
                     type=int,
                     help='number of duplication of dataset')
+parser.add_argument('--export_finn',
+                    action='store_true',
+                    help='export saved model to Xilinx FINN-used onnx')
+parser.add_argument('--dataset_cache',
+                    action='store_true',
+                    help='use dataset npy cache for lower CPU utilization')
+parser.add_argument('--train',
+                    action='store_true',
+                    help='perform model training')
 
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
 
 use_cuda = torch.cuda.is_available()
+device = 'cuda' if use_cuda else 'cpu'
 best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
-complement_learning_rate = args.lr
-num_classes = 35
+task = '12cmd'
 data_quantize_bits = 4  # in power of 2, 0 <= bins <= 16
 
 if use_cuda:
@@ -83,61 +90,26 @@ if use_cuda:
     n_gpu = torch.cuda.device_count()
     batch_size *= n_gpu
     base_learning_rate *= n_gpu
-    complement_learning_rate *= n_gpu
 
-# Data SEM
-print('==> Preparing SEM data..')
+# Data SPEECHCOMMANDS
+print('==> Preparing SPEECHCOMMANDS data..')
 
-traindir = os.path.join('./sd_GSCmdV2', 'train')
-testdir = os.path.join('./sd_GSCmdV2', 'test')
-#normalize = transforms.Normalize(
-#    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-#
-#transforms_list_train = transforms.Compose([
-#    transforms.RandomResizedCrop(224),
-#    transforms.RandomHorizontalFlip(),
-#    transforms.ToTensor(), normalize
-#])
-transforms_list_train = transforms.Compose([transforms.ToTensor()])
-img_extensions = '.csv'
-
-
-def csv_loader(path):
-    if not os.path.isfile(path + '.npy'):
-        y_int16 = np.loadtxt(path, dtype=np.int16, delimiter=',')
-        # save bitmaps of waveform to RGX png file
-        shape_rows = 16000
-        #y_uint8_high = (y_uint16 >> 8).reshape((shape_rows, -1)).astype(np.uint8)
-        #y_uint8_low = (y_uint16 & ((1 << (8 + 1)) - 1)).reshape(
-        #    (shape_rows, -1)).astype(np.uint8)
-        #y_bitmap = np.dstack(
-        #    (np.zeros_like(y_uint8_high,
-        #                   dtype=np.uint8), y_uint8_high, y_uint8_low))
-        bias = (1 << (16 - 1))  # 32768
-        y_uint16 = (y_int16.astype(np.int32) + bias).astype(np.uint16)
-        y_bins = (y_uint16 >> (16 - data_quantize_bits))
-        y_bitmap = np.eye((1 << data_quantize_bits))[y_bins]
-        y_bitmap = np.transpose(y_bitmap, (1, 0)).astype(np.float32)
-        #print(y_bitmap.shape)
-        np.save(path + '.npy', y_bitmap)
-    else:
-        y_bitmap = np.load(path + '.npy')
-    return y_bitmap
-
-
-train_dataset = torchvision.datasets.DatasetFolder(traindir, csv_loader,
-                                                   img_extensions)
+train_dataset = SpeechCommandDataset.SpeechCommandDataset(
+    "training",
+    task,
+    data_quantize_bits=data_quantize_bits,
+    cache=args.dataset_cache)
 for i in range(args.duplicate - 1):
     train_dataset = torch.utils.data.ConcatDataset([
         train_dataset,
-        torchvision.datasets.DatasetFolder(traindir, csv_loader,
-                                           img_extensions)
+        SpeechCommandDataset.SpeechCommandDataset(
+            "training",
+            task,
+            data_quantize_bits=data_quantize_bits,
+            cache=args.dataset_cache)
     ])
 
 train_sampler = None
-#if args.distributed:
-#    train_sampler = torch.utils.data.distributed.DistributedSampler(
-#        train_dataset)
 
 trainloader = torch.utils.data.DataLoader(train_dataset,
                                           batch_size=batch_size,
@@ -146,15 +118,11 @@ trainloader = torch.utils.data.DataLoader(train_dataset,
                                           pin_memory=True,
                                           sampler=train_sampler)
 
-#transforms_list_test =transforms.Compose([
-#                             transforms.Resize(256),
-#                             transforms.CenterCrop(224),
-#                             transforms.ToTensor(),
-#                             normalize])
-transforms_list_test = transforms.Compose([transforms.ToTensor()])
-
-test_dataset = torchvision.datasets.DatasetFolder(testdir, csv_loader,
-                                                  img_extensions)
+test_dataset = SpeechCommandDataset.SpeechCommandDataset(
+    "testing",
+    task,
+    data_quantize_bits=data_quantize_bits,
+    cache=args.dataset_cache)
 
 testloader = torch.utils.data.DataLoader(test_dataset,
                                          batch_size=100,
@@ -162,26 +130,49 @@ testloader = torch.utils.data.DataLoader(test_dataset,
                                          num_workers=args.workers,
                                          pin_memory=True)
 
+num_classes = test_dataset.num_classes
+
 # Model
+start_epoch = 0
+if args.sess == 'brevitas':
+    print('==> Building model.. AlexNetOWT_BN_brevitas')
+    net = AlexNetOWT_BN_brevitas(num_classes=num_classes,
+                                 input_channels=(1 << data_quantize_bits))
+elif args.sess == 'M5':
+    print('==> Building model.. M5_brevitas')
+    net = M5_brevitas(num_classes=num_classes,
+                      input_channels=(1 << data_quantize_bits),
+                      n_channel=128,
+                      stride=4)
+elif args.sess == 'M11':
+    print('==> Building model.. M11_brevitas')
+    net = M11_brevitas(num_classes=num_classes,
+                       input_channels=(1 << data_quantize_bits),
+                       n_channel=64,
+                       stride=4)
+else:
+    print('==> Building model.. AlexNetOWT_BN')
+    net = AlexNetOWT_BN(num_classes=num_classes,
+                        input_channels=(1 << data_quantize_bits))
+net.to(device)
+
+if use_cuda:
+    net = torch.nn.DataParallel(net)
+    print('Using', torch.cuda.device_count(), 'GPUs.')
+    cudnn.benchmark = True
+    print('Using CUDA..')
+
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
     checkpoint = torch.load('./checkpoint/ckpt.t7.' + args.sess + '_' +
-                            str(args.seed))
-    net = checkpoint['net']
+                            str(args.seed) + '.pth')
+    net.load_state_dict(checkpoint['net'])
+    net.to(device)
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch'] + 1
     torch.set_rng_state(checkpoint['rng_state'])
-else:
-    #print('==> Building model.. (Default : PreActResNet18)')
-    #start_epoch = 0
-    #net = PreActResNet18()
-    print('==> Building model.. AlexNetOWT_BN')
-    start_epoch = 0
-    #net = resnext50_32x4d(num_classes=num_classes)
-    net = AlexNetOWT_BN(num_classes=num_classes,
-                        input_channels=(1 << data_quantize_bits))
 
 result_folder = './results/'
 if not os.path.exists(result_folder):
@@ -190,29 +181,16 @@ if not os.path.exists(result_folder):
 logname = result_folder + net.__class__.__name__ + \
     '_' + args.sess + '_' + str(args.seed) + '.csv'
 
-if use_cuda:
-    net.cuda()
-    net = torch.nn.DataParallel(net)
-    print('Using', torch.cuda.device_count(), 'GPUs.')
-    cudnn.benchmark = True
-    print('Using CUDA..')
-
-summary(net, (16, 16000))
-
 criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD(net.parameters(),
-#                      lr=base_learning_rate,
-#                      momentum=0.9,
-#                      weight_decay=args.decay)
-optimizer = optim.Adam(net.parameters(),
-                       lr=base_learning_rate,
-                       weight_decay=args.decay)
-
-complement_criterion = ComplementEntropy(classes=num_classes)
-complement_optimizer = optim.SGD(net.parameters(),
-                                 lr=complement_learning_rate,
-                                 momentum=0.9,
-                                 weight_decay=args.decay)
+optimizer = optim.SGD(net.parameters(),
+                      lr=base_learning_rate,
+                      momentum=0.9,
+                      weight_decay=args.decay)
+if args.optimizer == 'Adam':
+    criterion = nn.NLLLoss()
+    optimizer = optim.Adam(net.parameters(),
+                           lr=base_learning_rate,
+                           weight_decay=args.decay)
 
 # Training
 
@@ -223,8 +201,7 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        #save_image(inputs, 'IMG/'+('%03d' % batch_idx)+'.png')
+    for batch_idx, (inputs, _, targets, _, _) in enumerate(trainloader):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
 
@@ -248,25 +225,6 @@ def train(epoch):
             (train_loss /
              (batch_idx + 1), 100. * correct / total, correct, total))
 
-        # COT Implementation
-        if args.COT:
-            inputs, targets = Variable(inputs), Variable(targets)
-            outputs = net(inputs)
-
-            loss = complement_criterion(outputs, targets)
-            complement_optimizer.zero_grad()
-            loss.backward()
-            complement_optimizer.step()
-
-            # train_loss += loss.item()
-            # _, predicted = torch.max(outputs.data, 1)
-            # total += targets.size(0)
-            # correct += predicted.eq(targets.data).cpu().sum()
-            # correct = correct.item()
-
-            # progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            #     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
     return (train_loss / batch_idx, 100. * correct / total)
 
 
@@ -277,7 +235,7 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        for batch_idx, (inputs, _, targets, _, _) in enumerate(testloader):
             if use_cuda:
                 inputs, targets = inputs.cuda(), targets.cuda()
             inputs, targets = Variable(inputs), Variable(targets)
@@ -298,7 +256,7 @@ def test(epoch):
 
     # Save checkpoint.
     acc = 100. * correct / total
-    if acc > best_acc:
+    if acc > best_acc and args.train:
         best_acc = acc
         checkpoint(acc, epoch)
     return (test_loss / batch_idx, 100. * correct / total)
@@ -308,39 +266,51 @@ def checkpoint(acc, epoch):
     # Save checkpoint.
     print('Saving..')
     state = {
-        'net': net,
+        'net': net.state_dict(),
         'acc': acc,
         'epoch': epoch,
         'rng_state': torch.get_rng_state()
     }
     if not os.path.isdir('checkpoint'):
         os.mkdir('checkpoint')
-    torch.save(state,
-               './checkpoint/ckpt.t7.' + args.sess + '_' + str(args.seed))
+    checkpoint_name = 'ckpt.t7.' + args.sess + '_' + str(args.seed) + '.pth'
+    torch.save(state, './checkpoint/' + checkpoint_name)
+
+    if args.export_finn:
+        if not os.path.isdir('export_finn'):
+            os.mkdir('export_finn')
+        export_file_temp_name = checkpoint_name + '.onnx'
+        export_file_temp_path = './export_finn/' + export_file_temp_name
+        export_file_name = checkpoint_name + '.finn.onnx'
+        export_file_path = './export_finn/' + export_file_name
+
+        torch_model = copy.deepcopy(net)
+        if use_cuda:
+            torch_model = torch_model.to('cpu').module
+        bo.export_finn_onnx(torch_model, (1, (1 << data_quantize_bits), 16000),
+                            export_file_temp_path)
+        finn_model = ModelWrapper(export_file_temp_path)
+        finn_model = finn_model.transform(InferShapes())
+        finn_model = finn_model.transform(FoldConstants())
+        finn_model = finn_model.transform(GiveUniqueNodeNames())
+        finn_model = finn_model.transform(GiveReadableTensorNames())
+        finn_model = finn_model.transform(RemoveStaticGraphInputs())
+        finn_model.save(export_file_path)
 
 
 def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
 
     lr = base_learning_rate
-    if epoch >= 3:
+    if epoch >= 10:
         lr /= 10
-    if epoch >= 9:
+    if epoch >= 30:
         lr /= 10
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-
-def complement_adjust_learning_rate(optimizer, epoch):
-    """decrease the learning rate at 100 and 150 epoch"""
-
-    lr = complement_learning_rate
-    if epoch <= 9 and lr > 0.1:
-        # warm-up training for large minibatch
-        lr = 0.1 + (complement_learning_rate - 0.1) * epoch / 10.
-    if epoch >= 100:
+    if epoch >= 50:
         lr /= 10
-    if epoch >= 150:
+    if epoch >= 60:
+        lr /= 10
+    if epoch >= 80:
         lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -352,11 +322,16 @@ if not os.path.exists(logname):
         logwriter.writerow(
             ['epoch', 'train loss', 'train acc', 'test loss', 'test acc'])
 
+if not args.train:
+    start_epoch = args.epochs - 1
+
 for epoch in range(start_epoch, args.epochs):
     adjust_learning_rate(optimizer, epoch)
-    complement_adjust_learning_rate(complement_optimizer, epoch)
-    train_loss, train_acc = train(epoch)
+    if args.train:
+        train_loss, train_acc = train(epoch)
     test_loss, test_acc = test(epoch)
-    with open(logname, 'a') as logfile:
-        logwriter = csv.writer(logfile, delimiter=',')
-        logwriter.writerow([epoch, train_loss, train_acc, test_loss, test_acc])
+    if args.train:
+        with open(logname, 'a') as logfile:
+            logwriter = csv.writer(logfile, delimiter=',')
+            logwriter.writerow(
+                [epoch, train_loss, train_acc, test_loss, test_acc])

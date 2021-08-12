@@ -1,0 +1,10 @@
+brevitas==0.6.0
+finn @ git+https://github.com/Xilinx/finn.git@c1e480d82bfc7f4011287551f05313503ceddd18
+numpy==1.18.5
+protobuf==3.16.0
+onnx==1.10.1
+onnxruntime==1.8.1
+torch==1.7.1
+torchaudio==0.7.2
+torchvision==0.8.2
+toposort==1.6

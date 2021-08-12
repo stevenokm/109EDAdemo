@@ -1,0 +1,272 @@
+import os
+import math
+from typing import Tuple
+
+import numpy as np
+
+import torch
+from torch import Tensor
+import torch.nn.functional as F
+
+import torchaudio
+from torchaudio.datasets import SPEECHCOMMANDS
+
+torchaudio.set_audio_backend('sox_io')
+
+HASH_DIVIDER = "_nohash_"
+
+GSCmdV2Categs = {
+    'unknown': 0,
+    'silence': 0,
+    '_unknown_': 0,
+    '_silence_': 0,
+    '_background_noise_': 0,
+    'yes': 2,
+    'no': 3,
+    'up': 4,
+    'down': 5,
+    'left': 6,
+    'right': 7,
+    'on': 8,
+    'off': 9,
+    'stop': 10,
+    'go': 11,
+    'zero': 12,
+    'one': 13,
+    'two': 14,
+    'three': 15,
+    'four': 16,
+    'five': 17,
+    'six': 18,
+    'seven': 19,
+    'eight': 20,
+    'nine': 1
+}
+numGSCmdV2Categs = 21
+
+
+def load_speechcommands_item(
+        filepath: str,
+        path: str,
+        catDict: dict,
+        cache: bool = True,
+        data_quantize_bits: int = 4) -> Tuple[Tensor, int, str, str, int]:
+    relpath = os.path.relpath(filepath, path)
+    label, filename = os.path.split(relpath)
+    # Besides the officially supported split method for datasets defined by
+    # "validation_list.txt" and "testing_list.txt" over
+    # "speech_commands_v0.0x.tar.gz" archives, an alternative split method
+    # referred to in paragraph 2-3 of Section 7.1, references 13 and 14 of
+    # the original paper, and the checksums file from the tensorflow_datasets
+    # package [1] is also supported.
+    # Some filenames in those "speech_commands_test_set_v0.0x.tar.gz" archives
+    # have the form "xxx.wav.wav", so file extensions twice needs to be
+    # stripped twice.
+    # [1] https://github.com/tensorflow/datasets/blob/master
+    # /tensorflow_datasets/url_checksums/speech_commands.txt
+    speaker, _ = os.path.splitext(filename)
+    speaker, _ = os.path.splitext(speaker)
+
+    speaker_id, utterance_number = speaker.split(HASH_DIVIDER)
+    utterance_number = int(utterance_number)
+
+    csv_filepath = filepath + '.csv'
+    bins_npy_filepath = csv_filepath + '.bins.npy'
+
+    # max magnatude of int16 (32768)
+    a_max = (1 << ((8 * 2) - 1))
+
+    metadata = torchaudio.info(filepath)
+    sample_rate = metadata.sample_rate
+
+    if not os.path.isfile(bins_npy_filepath) or not cache:
+        if not os.path.isfile(csv_filepath):
+            # Load audio with normalization
+            waveform, sample_rate = torchaudio.load(filepath)
+            # resize length of 'waveform' to factors of 'sample_rate'
+            pad_size = int(
+                math.ceil(metadata.num_frames / float(sample_rate)) *
+                sample_rate) - metadata.num_frames
+            waveform_pad = F.pad(waveform, (0, pad_size))
+            if __debug__ and metadata.num_frames > sample_rate:
+                print(sample_rate, metadata.num_frames, waveform_pad.shape)
+            # quantize to int16
+            # NOTE: clipped 32768 to -32768, -32768 to -32767
+            waveform_int16 = (waveform_pad * float(a_max)).to(torch.int16)
+            # save to csv
+            np.savetxt(csv_filepath,
+                       waveform_int16.numpy(),
+                       fmt='%d',
+                       delimiter=',')
+        else:
+            waveform_int16 = torch.from_numpy(
+                np.loadtxt(csv_filepath, dtype=np.int16, delimiter=','))
+
+        # save bins map of waveform to npy file
+        waveform_uint16 = torch.clamp(waveform_int16.to(torch.int32) + a_max,
+                                      min=0,
+                                      max=(a_max * 2 - 1)).to(torch.int64)
+        waveform_bins = (waveform_uint16 >> (16 - data_quantize_bits))
+        waveform_binsmap = F.one_hot(
+            waveform_bins, num_classes=(1 << data_quantize_bits)).squeeze()
+        if __debug__:
+            print(sample_rate, metadata.num_frames, waveform_binsmap.shape,
+                  label)
+        waveform_binsmap = torch.transpose(waveform_binsmap, 1,
+                                           0).to(torch.float32)
+        if cache:
+            np.save(bins_npy_filepath, waveform_binsmap.numpy())
+    else:
+        waveform_binsmap = torch.from_numpy(np.load(bins_npy_filepath))
+    return waveform_binsmap, sample_rate, catDict.get(
+        label, 0), speaker_id, utterance_number
+
+
+class SpeechCommandDataset(SPEECHCOMMANDS):
+    def __init__(self,
+                 subset: str = None,
+                 task: str = None,
+                 cache: bool = True,
+                 data_quantize_bits: int = 4):
+        super().__init__("./sd_GSCmdV2", download=True)
+
+        if task == '12cmd':
+            GSCmdV2Categs = {
+                'unknown': 0,
+                'silence': 1,
+                '_unknown_': 0,
+                '_silence_': 1,
+                '_background_noise_': 1,
+                'yes': 2,
+                'no': 3,
+                'up': 4,
+                'down': 5,
+                'left': 6,
+                'right': 7,
+                'on': 8,
+                'off': 9,
+                'stop': 10,
+                'go': 11
+            }
+            numGSCmdV2Categs = 12
+        elif task == 'leftright':
+            GSCmdV2Categs = {
+                'unknown': 0,
+                'silence': 0,
+                '_unknown_': 0,
+                '_silence_': 0,
+                '_background_noise_': 0,
+                'left': 1,
+                'right': 2
+            }
+            numGSCmdV2Categs = 3
+        elif task == '35word':
+            GSCmdV2Categs = {
+                'unknown': 0,
+                'silence': 0,
+                '_unknown_': 0,
+                '_silence_': 0,
+                '_background_noise_': 0,
+                'yes': 2,
+                'no': 3,
+                'up': 4,
+                'down': 5,
+                'left': 6,
+                'right': 7,
+                'on': 8,
+                'off': 9,
+                'stop': 10,
+                'go': 11,
+                'zero': 12,
+                'one': 13,
+                'two': 14,
+                'three': 15,
+                'four': 16,
+                'five': 17,
+                'six': 18,
+                'seven': 19,
+                'eight': 20,
+                'nine': 1,
+                'backward': 21,
+                'bed': 22,
+                'bird': 23,
+                'cat': 24,
+                'dog': 25,
+                'follow': 26,
+                'forward': 27,
+                'happy': 28,
+                'house': 29,
+                'learn': 30,
+                'marvin': 31,
+                'sheila': 32,
+                'tree': 33,
+                'visual': 34,
+                'wow': 35
+            }
+            numGSCmdV2Categs = 36
+        elif task == '20cmd':
+            GSCmdV2Categs = {
+                'unknown': 0,
+                'silence': 0,
+                '_unknown_': 0,
+                '_silence_': 0,
+                '_background_noise_': 0,
+                'yes': 2,
+                'no': 3,
+                'up': 4,
+                'down': 5,
+                'left': 6,
+                'right': 7,
+                'on': 8,
+                'off': 9,
+                'stop': 10,
+                'go': 11,
+                'zero': 12,
+                'one': 13,
+                'two': 14,
+                'three': 15,
+                'four': 16,
+                'five': 17,
+                'six': 18,
+                'seven': 19,
+                'eight': 20,
+                'nine': 1
+            }
+            numGSCmdV2Categs = 21
+
+        self.data_quantize_bits = data_quantize_bits
+        self.task = task
+        self.num_classes = numGSCmdV2Categs
+        self.catDict = GSCmdV2Categs
+        self.cache = cache
+
+        def load_list(filename):
+            filepath = os.path.join(self._path, filename)
+            with open(filepath) as fileobj:
+                return [
+                    os.path.join(self._path, line.strip()) for line in fileobj
+                ]
+
+        if subset == "validation":
+            self._walker = load_list("validation_list.txt")
+        elif subset == "testing":
+            self._walker = load_list("testing_list.txt")
+        elif subset == "training":
+            excludes = load_list("validation_list.txt") + load_list(
+                "testing_list.txt")
+            excludes = set(excludes)
+            self._walker = [w for w in self._walker if w not in excludes]
+
+    def __getitem__(self, n: int) -> Tuple[Tensor, int, str, str, int]:
+        """Load the n-th sample from the dataset.
+
+        Args:
+            n (int): The index of the sample to be loaded
+
+        Returns:
+            tuple: ``(waveform, sample_rate, label,
+                            speaker_id, utterance_number)``
+        """
+        fileid = self._walker[n]
+        return load_speechcommands_item(fileid, self._path, self.catDict,
+                                        self.cache, self.data_quantize_bits)
