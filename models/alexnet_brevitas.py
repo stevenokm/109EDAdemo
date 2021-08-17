@@ -1,7 +1,8 @@
-from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d, QuantScaleBias
-from brevitas.quant.binary import *
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d
+from brevitas.quant.binary import SignedBinaryWeightPerTensorConst
+from brevitas.quant.binary import SignedBinaryActPerTensorConst
+
 import torch.nn as nn
-import torchvision.transforms as transforms
 
 __all__ = ['alexnet_brevitas']
 
@@ -25,7 +26,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
         self.pullSize2 = 2
         self.features = nn.Sequential(
             nn.BatchNorm1d(input_channels),
-            #QuantHardTanh(act_quant=self.act_quant),
             QuantConv1d(input_channels,
                         int(self.convDepth1 * self.ratioInfl),
                         weight_quant=self.weight_quant,
@@ -39,7 +39,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             nn.BatchNorm1d(int(self.convDepth1 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize1, stride=self.pullSize1),
-
             QuantConv1d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth1 * self.ratioInfl),
                         weight_quant=self.weight_quant,
@@ -53,7 +52,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             nn.BatchNorm1d(int(self.convDepth1 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2, stride=self.pullSize2),
-
             QuantConv1d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth2 * self.ratioInfl),
                         weight_quant=self.weight_quant,
@@ -67,7 +65,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             nn.BatchNorm1d(int(self.convDepth2 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2),
-
             QuantConv1d(int(self.convDepth2 * self.ratioInfl),
                         int(self.convDepth2 * self.ratioInfl),
                         weight_quant=self.weight_quant,
@@ -86,7 +83,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             nn.BatchNorm1d(int(self.convDepth2 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool1d(kernel_size=self.pullSize2),
-
             QuantConv1d(int(self.convDepth2 * self.ratioInfl),
                         int(self.convDepth3 * self.ratioInfl),
                         weight_quant=self.weight_quant,
@@ -104,14 +100,12 @@ class AlexNetOWT_BN_brevitas(nn.Module):
                         dilation=5),
             nn.BatchNorm1d(int(self.convDepth3 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
-            #QuantMaxPool1d(kernel_size=self.pullSize2),
         )
         self.classifier = nn.Sequential(
             QuantLinear(self.embedding_factor,
                         self.fcDepth,
                         bias=False,
                         weight_quant=self.weight_quant),
-            #nn.Dropout(0.5),
             nn.BatchNorm1d(self.fcDepth),
             QuantHardTanh(act_quant=self.act_quant),
             QuantLinear(self.fcDepth,
@@ -119,7 +113,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
                         bias=False,
                         weight_quant=self.weight_quant),
             nn.BatchNorm1d(num_classes),
-            #nn.LogSoftmax()
         )
 
     def forward(self, x):
@@ -129,6 +122,6 @@ class AlexNetOWT_BN_brevitas(nn.Module):
         return x
 
 
-def alexnet_binary(**kwargs):
+def alexnet_brevitas(**kwargs):
     num_classes = kwargs.get('num_classes', 1000)
-    return AlexNetOWT_BN(num_classes)
+    return AlexNetOWT_BN_brevitas(num_classes)

@@ -64,15 +64,22 @@
 #  --optimizer Adam \
 #  $@
 
-#export CUDA_VISIBLE_DEVICES=0
-#python3.6 main.py \
-#  --batch-size 8 \
-#  --sess debug
-
+export CUDA_VISIBLE_DEVICES=2
 python3.6 -O main.py \
-  --batch-size 32 \
+  --batch-size 128 \
   --workers 16 \
+  --lr 0.1 \
+  --epochs 30 \
   --seed 11111 \
-  --sess brevitas \
-  --resume \
+  --sess end2end \
+  --export_finn \
+  --optimizer SGD \
   $@
+
+#python3.6 -O main.py \
+#  --batch-size 32 \
+#  --workers 16 \
+#  --seed 11111 \
+#  --sess brevitas \
+#  --resume \
+#  $@

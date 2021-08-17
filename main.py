@@ -12,10 +12,17 @@ import argparse
 import csv
 import copy
 
+from thop import profile as thop_profile
+from thop.vision import basic_hooks as thop_basic_hooks
+
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d
+from brevitas.nn import QuantReLU
+
 from models.alexnet_brevitas import AlexNetOWT_BN_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
 from models.M5_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
+from models.end2end_brevitas import end2end_brevitas
 from utils import progress_bar
 import SpeechCommandDataset
 
@@ -150,11 +157,34 @@ elif args.sess == 'M11':
                        input_channels=(1 << data_quantize_bits),
                        n_channel=64,
                        stride=4)
+elif args.sess == 'end2end':
+    print('==> Building model.. end2end_brevitas')
+    net = end2end_brevitas(num_classes=num_classes,
+                           input_channels=(1 << data_quantize_bits))
 else:
     print('==> Building model.. AlexNetOWT_BN')
     net = AlexNetOWT_BN(num_classes=num_classes,
                         input_channels=(1 << data_quantize_bits))
+
 net.to(device)
+
+brevitas_op_count_hooks = {
+    QuantConv1d: thop_basic_hooks.count_convNd,
+    QuantReLU: thop_basic_hooks.zero_ops,
+    QuantHardTanh: thop_basic_hooks.zero_ops,
+    QuantMaxPool1d: thop_basic_hooks.zero_ops,
+    QuantLinear: thop_basic_hooks.count_linear,
+}
+inputs = torch.rand(1, (1 << data_quantize_bits), 16000, device=device)
+thop_model = copy.deepcopy(net)
+macs, params = thop_profile(thop_model,
+                            inputs=(inputs, ),
+                            custom_ops=brevitas_op_count_hooks)
+
+print('')
+print("#MACs/batch: {macs:d}, #Params: {params:d}".format(
+    macs=(int(macs / inputs.shape[0])), params=(int(params))))
+print('')
 
 if use_cuda:
     net = torch.nn.DataParallel(net)
