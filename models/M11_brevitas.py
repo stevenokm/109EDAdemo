@@ -89,7 +89,20 @@ class M11_brevitas(nn.Module):
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
-        self.act = QuantHardTanh(act_quant=self.act_quant)
+        # NOTE: activiation must different instance for
+        # MultiThreshol-Add absorption
+        self.act1 = QuantHardTanh(act_quant=self.act_quant)
+        self.act2 = QuantHardTanh(act_quant=self.act_quant)
+        self.act2_1 = QuantHardTanh(act_quant=self.act_quant)
+        self.act3 = QuantHardTanh(act_quant=self.act_quant)
+        self.act4 = QuantHardTanh(act_quant=self.act_quant)
+        self.act5 = QuantHardTanh(act_quant=self.act_quant)
+        self.act6 = QuantHardTanh(act_quant=self.act_quant)
+        self.act6_1 = QuantHardTanh(act_quant=self.act_quant)
+        self.act6_2 = QuantHardTanh(act_quant=self.act_quant)
+        self.act7 = QuantHardTanh(act_quant=self.act_quant)
+        self.act8 = QuantHardTanh(act_quant=self.act_quant)
+        self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
         self.emb = QuantConv1d(8 * n_channel,
                                8 * n_channel,
                                kernel_size=self.emb_factor,
@@ -97,31 +110,31 @@ class M11_brevitas(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.act(self.bn1(x))
+        x = self.act1(self.bn1(x))
         x = self.pool1(x)
         x = self.conv2(x)
-        x = self.act(self.bn2(x))
+        x = self.act2(self.bn2(x))
         x = self.conv2_1(x)
-        x = self.act(self.bn2_1(x))
+        x = self.act2_1(self.bn2_1(x))
         x = self.pool2(x)
         x = self.conv3(x)
-        x = self.act(self.bn3(x))
+        x = self.act3(self.bn3(x))
         x = self.conv4(x)
-        x = self.act(self.bn4(x))
+        x = self.act4(self.bn4(x))
         x = self.pool4(x)
         x = self.conv5(x)
-        x = self.act(self.bn5(x))
+        x = self.act5(self.bn5(x))
         x = self.conv6(x)
-        x = self.act(self.bn6(x))
+        x = self.act6(self.bn6(x))
         x = self.conv6_1(x)
-        x = self.act(self.bn6_1(x))
+        x = self.act6_1(self.bn6_1(x))
         x = self.conv6_2(x)
-        x = self.act(self.bn6_2(x))
+        x = self.act6_2(self.bn6_2(x))
         x = self.pool6(x)
         x = self.conv7(x)
-        x = self.act(self.bn7(x))
+        x = self.act7(self.bn7(x))
         x = self.conv8(x)
-        x = self.act(self.bn8(x))
+        x = self.act8(self.bn8(x))
         x = self.pool8(x)
         if __debug__:
             print(x.shape)
@@ -130,6 +143,6 @@ class M11_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.fc1(x)
-        x = self.act(self.bnfc1(x))
+        x = self.actfc1(self.bnfc1(x))
         x = self.fc2(x)
         return x
