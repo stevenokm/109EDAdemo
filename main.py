@@ -287,7 +287,8 @@ def checkpoint(acc, epoch):
         torch_model = copy.deepcopy(net)
         if use_cuda:
             torch_model = torch_model.to('cpu').module
-        bo.export_finn_onnx(torch_model, (1, (1 << data_quantize_bits), 16000),
+        bo.export_finn_onnx(torch_model,
+                            (1, (1 << data_quantize_bits), 16000, 1),
                             export_file_temp_path)
         finn_model = ModelWrapper(export_file_temp_path)
         finn_model = finn_model.transform(InferShapes())

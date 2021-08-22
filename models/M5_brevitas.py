@@ -1,4 +1,4 @@
-from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
 from brevitas.quant.binary import SignedBinaryActPerTensorConst
 from brevitas.quant.binary import SignedBinaryWeightPerTensorConst
 import torch.nn as nn
@@ -13,52 +13,53 @@ class M5_brevitas(nn.Module):
                  stride=4,
                  n_channel=128):
         super().__init__()
-        self.emb_factor = 14
+        self.emb_factor = (14, 1)
+        self.n_channel = n_channel
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
-        self.conv1 = QuantConv1d(input_channels,
-                                 n_channel,
-                                 kernel_size=80,
+        self.conv1 = QuantConv2d(input_channels,
+                                 self.n_channel,
+                                 kernel_size=(80, 1),
                                  stride=stride,
                                  weight_quant=self.weight_quant)
-        self.bn1 = nn.BatchNorm1d(n_channel)
-        self.pool1 = QuantMaxPool1d(4)
-        self.conv2 = QuantConv1d(n_channel,
-                                 n_channel,
-                                 kernel_size=3,
+        self.bn1 = nn.BatchNorm2d(self.n_channel)
+        self.pool1 = QuantMaxPool2d((4, 1))
+        self.conv2 = QuantConv2d(self.n_channel,
+                                 self.n_channel,
+                                 kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
-        self.bn2 = nn.BatchNorm1d(n_channel)
-        self.pool2 = QuantMaxPool1d(4)
-        self.conv3 = QuantConv1d(n_channel,
-                                 2 * n_channel,
-                                 kernel_size=3,
+        self.bn2 = nn.BatchNorm2d(self.n_channel)
+        self.pool2 = QuantMaxPool2d((4, 1))
+        self.conv3 = QuantConv2d(self.n_channel,
+                                 2 * self.n_channel,
+                                 kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
-        self.bn3 = nn.BatchNorm1d(2 * n_channel)
-        self.pool3 = QuantMaxPool1d(4)
-        # self.conv4 = QuantConv1d(2 * n_channel,
-        #                          2 * n_channel,
-        #                          kernel_size=3,
+        self.bn3 = nn.BatchNorm2d(2 * self.n_channel)
+        self.pool3 = QuantMaxPool2d((4, 1))
+        # self.conv4 = QuantConv2d(2 * self.n_channel,
+        #                          2 * self.n_channel,
+        #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
-        # self.bn4 = nn.BatchNorm1d(2 * n_channel)
-        # self.pool4 = QuantMaxPool1d(4)
-        self.conv5 = QuantConv1d(2 * n_channel,
-                                 4 * n_channel,
-                                 kernel_size=3,
+        # self.bn4 = nn.BatchNorm2d(2 * self.n_channel)
+        # self.pool4 = QuantMaxPool2d((4, 1))
+        self.conv5 = QuantConv2d(2 * self.n_channel,
+                                 4 * self.n_channel,
+                                 kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
-        self.bn5 = nn.BatchNorm1d(4 * n_channel)
-        self.pool5 = QuantMaxPool1d(4)
-        # self.conv6 = QuantConv1d(4 * n_channel,
-        #                          4 * n_channel,
-        #                          kernel_size=3,
+        self.bn5 = nn.BatchNorm2d(4 * self.n_channel)
+        self.pool5 = QuantMaxPool2d((4, 1))
+        # self.conv6 = QuantConv2d(4 * self.n_channel,
+        #                          4 * self.n_channel,
+        #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
-        # self.bn6 = nn.BatchNorm1d(4 * n_channel)
-        # self.pool6 = QuantMaxPool1d(4)
-        self.fc1 = QuantLinear(4 * n_channel,
-                               2 * n_channel,
+        # self.bn6 = nn.BatchNorm2d(4 * self.n_channel)
+        # self.pool6 = QuantMaxPool2d((4, 1))
+        self.fc1 = QuantLinear(4 * self.n_channel,
+                               2 * self.n_channel,
                                bias=False,
                                weight_quant=self.weight_quant)
-        self.bnfc1 = nn.BatchNorm1d(2 * n_channel)
-        self.fc2 = QuantLinear(2 * n_channel,
+        self.bnfc1 = nn.BatchNorm1d(2 * self.n_channel)
+        self.fc2 = QuantLinear(2 * self.n_channel,
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -71,8 +72,8 @@ class M5_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = QuantConv1d(4 * n_channel,
-                               4 * n_channel,
+        self.emb = QuantConv2d(4 * self.n_channel,
+                               4 * self.n_channel,
                                kernel_size=self.emb_factor,
                                weight_quant=self.weight_quant)
 
@@ -98,7 +99,7 @@ class M5_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.emb(x)
-        x = x.squeeze(dim=2)
+        x = x.view(-1, 4 * self.n_channel)
         if __debug__:
             print(x.shape)
         x = self.fc1(x)

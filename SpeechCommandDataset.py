@@ -113,7 +113,7 @@ def load_speechcommands_item(
             print(sample_rate, metadata.num_frames, waveform_binsmap.shape,
                   label)
         waveform_binsmap = torch.transpose(waveform_binsmap, 1,
-                                           0).to(torch.float32)
+                                           0).unsqueeze(-1).to(torch.float32)
         if cache:
             np.save(bins_npy_filepath, waveform_binsmap.numpy())
     else:
