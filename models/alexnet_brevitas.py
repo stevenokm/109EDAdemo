@@ -19,7 +19,7 @@ class AlexNetOWT_BN_brevitas(nn.Module):
         self.convDepth2 = 256
         self.convDepth3 = 128
         self.fcDepth = 4096
-        self.embedding_factor = int(1908736 // 32)
+        self.embedding_factor = self.convDepth3 * 466
         self.cell_kernel_size = (3, 1)
         self.pullSize1 = (4, 1)
         self.pullSize2 = (2, 1)
@@ -29,7 +29,7 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             QuantConv2d(input_channels,
                         int(self.convDepth1 * self.ratioInfl),
                         weight_quant=self.weight_quant,
-                        kernel_size=(64, 1),
+                        kernel_size=(67, 1),
                         dilation=1),
             QuantConv2d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth1 * self.ratioInfl),
@@ -43,7 +43,7 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             QuantConv2d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth1 * self.ratioInfl),
                         weight_quant=self.weight_quant,
-                        kernel_size=self.cell_kernel_size,
+                        kernel_size=(4, 1),
                         dilation=2),
             QuantConv2d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth1 * self.ratioInfl),
@@ -57,7 +57,7 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             QuantConv2d(int(self.convDepth1 * self.ratioInfl),
                         int(self.convDepth2 * self.ratioInfl),
                         weight_quant=self.weight_quant,
-                        kernel_size=self.cell_kernel_size,
+                        kernel_size=(4, 1),
                         dilation=1),
             QuantConv2d(int(self.convDepth2 * self.ratioInfl),
                         int(self.convDepth2 * self.ratioInfl),
@@ -67,6 +67,7 @@ class AlexNetOWT_BN_brevitas(nn.Module):
             nn.BatchNorm2d(int(self.convDepth2 * self.ratioInfl)),
             QuantHardTanh(act_quant=self.act_quant),
             QuantMaxPool2d(kernel_size=self.pullSize2),
+
             QuantConv2d(int(self.convDepth2 * self.ratioInfl),
                         int(self.convDepth2 * self.ratioInfl),
                         weight_quant=self.weight_quant,

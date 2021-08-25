@@ -13,43 +13,48 @@ class M5_brevitas(nn.Module):
                  stride=4,
                  n_channel=128):
         super().__init__()
-        self.emb_factor = (14, 1)
+        self.emb_factor = (16, 1)
         self.n_channel = n_channel
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
         self.conv1 = QuantConv2d(input_channels,
                                  self.n_channel,
-                                 kernel_size=(80, 1),
+                                 kernel_size=(84, 1),
                                  stride=stride,
                                  weight_quant=self.weight_quant)
         self.bn1 = nn.BatchNorm2d(self.n_channel)
         self.pool1 = QuantMaxPool2d((4, 1))
         self.conv2 = QuantConv2d(self.n_channel,
                                  self.n_channel,
-                                 kernel_size=(3, 1),
+                                 padding=(2, 0),
+                                 kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn2 = nn.BatchNorm2d(self.n_channel)
         self.pool2 = QuantMaxPool2d((4, 1))
         self.conv3 = QuantConv2d(self.n_channel,
                                  2 * self.n_channel,
-                                 kernel_size=(3, 1),
+                                 padding=(1, 0),
+                                 kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn3 = nn.BatchNorm2d(2 * self.n_channel)
         self.pool3 = QuantMaxPool2d((4, 1))
         # self.conv4 = QuantConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
+        #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn4 = nn.BatchNorm2d(2 * self.n_channel)
         # self.pool4 = QuantMaxPool2d((4, 1))
         self.conv5 = QuantConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
+                                 padding=(2, 0),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
         self.bn5 = nn.BatchNorm2d(4 * self.n_channel)
         self.pool5 = QuantMaxPool2d((4, 1))
         # self.conv6 = QuantConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
+        #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn6 = nn.BatchNorm2d(4 * self.n_channel)

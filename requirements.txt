@@ -8,3 +8,4 @@ torch==1.7.1
 torchaudio==0.7.2
 torchvision==0.8.2
 toposort==1.6
+torchinfo==1.5.3

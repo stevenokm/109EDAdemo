@@ -7,6 +7,8 @@ import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
 
+from torchinfo import summary
+
 import os
 import argparse
 import csv
@@ -155,6 +157,8 @@ else:
     net = AlexNetOWT_BN(num_classes=num_classes,
                         input_channels=(1 << data_quantize_bits))
 net.to(device)
+
+summary(net, input_size=(1, (1 << data_quantize_bits), 16000, 1))
 
 if use_cuda:
     net = torch.nn.DataParallel(net)
