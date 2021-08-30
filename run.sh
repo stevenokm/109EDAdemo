@@ -19,16 +19,16 @@
 #  --sess baseline \
 #  $@
 
-export CUDA_VISIBLE_DEVICES=0,1
-python3.6 main.py \
-  --batch-size 32 \
-  --workers 16 \
-  --lr 0.1 \
-  --epochs 100 \
-  --seed 22222 \
-  --sess brevitas \
-  --export_finn \
-  $@
+#export CUDA_VISIBLE_DEVICES=0,1
+#python3.6 main.py \
+#  --batch-size 32 \
+#  --workers 16 \
+#  --lr 0.1 \
+#  --epochs 100 \
+#  --seed 22222 \
+#  --sess brevitas \
+#  --export_finn \
+#  $@
 
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 #python3.6 -O main.py \
@@ -64,17 +64,18 @@ python3.6 main.py \
 #  --optimizer Adam \
 #  $@
 
-#export CUDA_VISIBLE_DEVICES=0
-#python3.6 -O main.py \
-#  --batch-size 128 \
-#  --workers 16 \
-#  --lr 0.01 \
-#  --epochs 5 \
-#  --seed 11111 \
-#  --sess M5_wsconv \
-#  --export_finn \
-#  --optimizer Adam \
-#  $@
+export CUDA_VISIBLE_DEVICES=0
+python3.6 -O main.py \
+  --batch-size 128 \
+  --workers 16 \
+  --lr 0.01 \
+  --epochs 5 \
+  --seed 11111 \
+  --sess M5_wsconv \
+  --export_finn \
+  --optimizer Adam \
+  --train \
+  $@
 
 #export CUDA_VISIBLE_DEVICES=1
 #python3.6 -O main.py \
@@ -100,10 +101,10 @@ python3.6 main.py \
 #  --optimizer SGD \
 #  $@
 
-python3.6 -O main.py \
-  --batch-size 32 \
-  --workers 16 \
-  --seed 11111 \
-  --sess brevitas \
-  --resume \
-  $@
+#python3.6 -O main.py \
+#  --batch-size 32 \
+#  --workers 16 \
+#  --seed 11111 \
+#  --sess brevitas \
+#  --resume \
+#  $@
