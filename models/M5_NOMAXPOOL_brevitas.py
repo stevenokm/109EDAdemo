@@ -1,4 +1,4 @@
-from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantConv2d
 from brevitas.nn import QuantIdentity
 from brevitas.quant.binary import SignedBinaryActPerTensorConst
 from brevitas.quant.binary import SignedBinaryWeightPerTensorConst
@@ -24,42 +24,66 @@ class M5_BN_brevitas(nn.Module):
                                  stride=stride,
                                  weight_quant=self.weight_quant)
         self.bn1 = nn.BatchNorm2d(self.n_channel)
-        self.pool1 = QuantMaxPool2d((4, 1))
+        self.pool1 = QuantConv2d(self.n_channel,
+                                 self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         self.conv2 = QuantConv2d(self.n_channel,
                                  self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn2 = nn.BatchNorm2d(self.n_channel)
-        self.pool2 = QuantMaxPool2d((4, 1))
+        self.pool2 = QuantConv2d(self.n_channel,
+                                 self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         self.conv3 = QuantConv2d(self.n_channel,
                                  2 * self.n_channel,
                                  padding=(1, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn3 = nn.BatchNorm2d(2 * self.n_channel)
-        self.pool3 = QuantMaxPool2d((4, 1))
+        self.pool3 = QuantConv2d(2 * self.n_channel,
+                                 2 * self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         # self.conv4 = QuantConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn4 = nn.BatchNorm2d(2 * self.n_channel)
-        # self.pool4 = QuantMaxPool2d((4, 1))
+        # self.pool4 = QuantConv2d(self.n_channel,
+        #                          self.n_channel,
+        #                          stride=(4, 1),
+        #                          kernel_size=(4, 1),
+        #                          weight_quant=self.weight_quant)
         self.conv5 = QuantConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
         self.bn5 = nn.BatchNorm2d(4 * self.n_channel)
-        self.pool5 = QuantMaxPool2d((4, 1))
+        self.pool5 = QuantConv2d(4 * self.n_channel,
+                                 4 * self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         # self.conv6 = QuantConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn6 = nn.BatchNorm2d(4 * self.n_channel)
-        # self.pool6 = QuantMaxPool2d((4, 1))
+        # self.pool6 = QuantConv2d(4 * self.n_channel,
+        #                          4 * self.n_channel,
+        #                          stride=(4, 1),
+        #                          kernel_size=(4, 1),
+        #                          weight_quant=self.weight_quant)
         self.fc1 = QuantLinear(4 * self.n_channel,
                                2 * self.n_channel,
                                bias=False,
@@ -131,42 +155,66 @@ class M5_NOBN_brevitas(nn.Module):
                                  stride=stride,
                                  weight_quant=self.weight_quant)
         self.bn1 = QuantIdentity(act_quant=self.act_quant)
-        self.pool1 = QuantMaxPool2d((4, 1))
+        self.pool1 = QuantConv2d(self.n_channel,
+                                 self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         self.conv2 = QuantConv2d(self.n_channel,
                                  self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn2 = QuantIdentity(act_quant=self.act_quant)
-        self.pool2 = QuantMaxPool2d((4, 1))
+        self.pool2 = QuantConv2d(self.n_channel,
+                                 self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         self.conv3 = QuantConv2d(self.n_channel,
                                  2 * self.n_channel,
                                  padding=(1, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn3 = QuantIdentity(act_quant=self.act_quant)
-        self.pool3 = QuantMaxPool2d((4, 1))
+        self.pool3 = QuantConv2d(2 * self.n_channel,
+                                 2 * self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         # self.conv4 = QuantConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn4 = QuantIdentity(act_quant=self.act_quant)
-        # self.pool4 = QuantMaxPool2d((4, 1))
+        # self.pool4 = QuantConv2d(self.n_channel,
+        #                          self.n_channel,
+        #                          stride=(4, 1),
+        #                          kernel_size=(4, 1),
+        #                          weight_quant=self.weight_quant)
         self.conv5 = QuantConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
         self.bn5 = QuantIdentity(act_quant=self.act_quant)
-        self.pool5 = QuantMaxPool2d((4, 1))
+        self.pool5 = QuantConv2d(4 * self.n_channel,
+                                 4 * self.n_channel,
+                                 stride=(4, 1),
+                                 kernel_size=(4, 1),
+                                 weight_quant=self.weight_quant)
         # self.conv6 = QuantConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
         # self.bn6 = QuantIdentity(act_quant=self.act_quant)
-        # self.pool6 = QuantMaxPool2d((4, 1))
+        # self.pool6 = QuantConv2d(4 * self.n_channel,
+        #                          4 * self.n_channel,
+        #                          stride=(4, 1),
+        #                          kernel_size=(4, 1),
+        #                          weight_quant=self.weight_quant)
         self.fc1 = QuantLinear(4 * self.n_channel,
                                2 * self.n_channel,
                                bias=False,

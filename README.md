@@ -9,6 +9,12 @@ This repository contains the PyTorch implementation of 109 2nd-year EDA project 
 
 Please refer to [requirements.txt](requirements.txt)
 
+User can use the command shows below to install dependencies:
+
+```bash
+pip3.6 install -r requirements.txt
+```
+
 ## Usage
 For test results for alexnet_brevitas:
 
