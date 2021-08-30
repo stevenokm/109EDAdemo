@@ -1,4 +1,4 @@
-brevitas==0.6.0
+brevitas @ git+https://github.com/stevenokm/brevitas.git@a5bfd6dc5e030f0047ac1ee47932b60e8e873e17
 finn @ git+https://github.com/Xilinx/finn.git@c1e480d82bfc7f4011287551f05313503ceddd18
 numpy==1.18.5
 protobuf==3.16.0

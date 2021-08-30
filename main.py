@@ -14,14 +14,20 @@ import argparse
 import csv
 import copy
 
-from models.alexnet_brevitas import AlexNetOWT_BN_brevitas
+import numpy as np
+
+import random
+
+from models.alexnet_NOMAXPOOL_brevitas import alexnet_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
-from models.M5_brevitas import M5_brevitas
+from models.M5_NOMAXPOOL_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
 from utils import progress_bar
 import SpeechCommandDataset
 
 import brevitas.onnx as bo
+import brevitas.nn as qnn
+
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.fold_constants import FoldConstants
@@ -74,10 +80,19 @@ parser.add_argument('--dataset_cache',
 parser.add_argument('--train',
                     action='store_true',
                     help='perform model training')
+parser.add_argument('--noise',
+                    default=0.0,
+                    type=float,
+                    help='scale of injected noises')
 
 args = parser.parse_args()
 
+np.random.seed(args.seed)
+random.seed(args.seed)
 torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
+cudnn.deterministic = True
 
 use_cuda = torch.cuda.is_available()
 device = 'cuda' if use_cuda else 'cpu'
@@ -86,6 +101,7 @@ batch_size = args.batch_size
 base_learning_rate = args.lr
 task = '12cmd'
 data_quantize_bits = 4  # in power of 2, 0 <= bins <= 16
+wsconv = False
 
 if use_cuda:
     # data parallel
@@ -137,15 +153,29 @@ num_classes = test_dataset.num_classes
 # Model
 start_epoch = 0
 if args.sess == 'brevitas':
-    print('==> Building model.. AlexNetOWT_BN_brevitas')
-    net = AlexNetOWT_BN_brevitas(num_classes=num_classes,
-                                 input_channels=(1 << data_quantize_bits))
+    print('==> Building model.. alexnet_brevitas')
+    net = alexnet_brevitas(num_classes=num_classes,
+                           input_channels=(1 << data_quantize_bits))
+elif args.sess == 'brevitas_wsconv':
+    print('==> Building model.. alexnet_brevitas (with wsconv)')
+    wsconv = True
+    net = alexnet_brevitas(num_classes=num_classes,
+                           input_channels=(1 << data_quantize_bits),
+                           batchnorm=False)
 elif args.sess == 'M5':
     print('==> Building model.. M5_brevitas')
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
                       n_channel=128,
                       stride=4)
+elif args.sess == 'M5_wsconv':
+    print('==> Building model.. M5_brevitas (with wsconv)')
+    wsconv = True
+    net = M5_brevitas(num_classes=num_classes,
+                      input_channels=(1 << data_quantize_bits),
+                      n_channel=128,
+                      stride=4,
+                      batchnorm=False)
 elif args.sess == 'M11':
     print('==> Building model.. M11_brevitas')
     net = M11_brevitas(num_classes=num_classes,
@@ -218,6 +248,16 @@ def train(epoch):
         loss.backward()
         optimizer.step()
 
+        # if wsconv:
+        #     with torch.no_grad():
+        #         for layer in net.modules():
+        #             if isinstance(layer, qnn.QuantConv2d) or isinstance(
+        #                     layer, qnn.QuantLinear):
+        #                 layer_std, layer_mean = torch.std_mean(layer.weight)
+        #                 layer.weight -= layer_mean
+        #                 layer.weight /= layer_std
+        #                 layer.weight *= torch.numel(layer.weight)**-.5
+
         train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
         total += targets.size(0)
@@ -238,11 +278,35 @@ def test(epoch):
     test_loss = 0
     correct = 0
     total = 0
+
     with torch.no_grad():
+
+        if wsconv:
+            for layer in net.modules():
+                if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                        layer, qnn.QuantLinear):
+                    layer_std, layer_mean = torch.std_mean(layer.weight)
+                    layer.weight -= layer_mean
+                    layer.weight /= layer_std
+                    layer.weight *= torch.numel(layer.weight)**-.5
+
         for batch_idx, (inputs, _, targets, _, _) in enumerate(testloader):
             if use_cuda:
                 inputs, targets = inputs.cuda(), targets.cuda()
             inputs, targets = Variable(inputs), Variable(targets)
+
+            if args.noise > 0.0:
+                for layer in net.modules():
+                    if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                            layer, qnn.QuantLinear):
+                        layer.weight += torch.normal(
+                            mean=0.0,
+                            std=(args.noise**2),
+                            size=layer.weight.size(),
+                            dtype=layer.weight.dtype,
+                            layout=layer.weight.layout,
+                            device=layer.weight.device)
+
             outputs = net(inputs)
             loss = criterion(outputs, targets)
 
