@@ -21,12 +21,12 @@ import random
 from thop import profile as thop_profile
 from thop.vision import basic_hooks as thop_basic_hooks
 
-from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool1d, QuantConv1d
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
 from brevitas.nn import QuantReLU
 
 from models.alexnet_NOMAXPOOL_brevitas import alexnet_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
-from models.M5_NOMAXPOOL_brevitas import M5_brevitas
+from models.M5_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
 from models.end2end_brevitas import end2end_brevitas
 from utils import progress_bar
@@ -203,13 +203,13 @@ net.to(device)
 summary(net, input_size=(1, (1 << data_quantize_bits), 16000, 1))
 
 brevitas_op_count_hooks = {
-    QuantConv1d: thop_basic_hooks.count_convNd,
+    QuantConv2d: thop_basic_hooks.count_convNd,
     QuantReLU: thop_basic_hooks.zero_ops,
     QuantHardTanh: thop_basic_hooks.zero_ops,
-    QuantMaxPool1d: thop_basic_hooks.zero_ops,
+    QuantMaxPool2d: thop_basic_hooks.zero_ops,
     QuantLinear: thop_basic_hooks.count_linear,
 }
-inputs = torch.rand(1, (1 << data_quantize_bits), 16000, device=device)
+inputs = torch.rand(1, (1 << data_quantize_bits), 16000, 1, device=device)
 thop_model = copy.deepcopy(net)
 macs, params = thop_profile(thop_model,
                             inputs=(inputs, ),
@@ -278,15 +278,15 @@ def train(epoch):
         loss.backward()
         optimizer.step()
 
-        # if wsconv:
-        #     with torch.no_grad():
-        #         for layer in net.modules():
-        #             if isinstance(layer, qnn.QuantConv2d) or isinstance(
-        #                     layer, qnn.QuantLinear):
-        #                 layer_std, layer_mean = torch.std_mean(layer.weight)
-        #                 layer.weight -= layer_mean
-        #                 layer.weight /= layer_std
-        #                 layer.weight *= torch.numel(layer.weight)**-.5
+        if wsconv:
+            with torch.no_grad():
+                for layer in net.modules():
+                    if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                            layer, qnn.QuantLinear):
+                        layer_std, layer_mean = torch.std_mean(layer.weight)
+                        layer.weight -= layer_mean
+                        layer.weight /= layer_std
+                        layer.weight *= torch.numel(layer.weight)**-.5
 
         train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
@@ -311,14 +311,14 @@ def test(epoch):
 
     with torch.no_grad():
 
-        if wsconv:
-            for layer in net.modules():
-                if isinstance(layer, qnn.QuantConv2d) or isinstance(
-                        layer, qnn.QuantLinear):
-                    layer_std, layer_mean = torch.std_mean(layer.weight)
-                    layer.weight -= layer_mean
-                    layer.weight /= layer_std
-                    layer.weight *= torch.numel(layer.weight)**-.5
+        #if wsconv:
+        #    for layer in net.modules():
+        #        if isinstance(layer, qnn.QuantConv2d) or isinstance(
+        #                layer, qnn.QuantLinear):
+        #            layer_std, layer_mean = torch.std_mean(layer.weight)
+        #            layer.weight -= layer_mean
+        #            layer.weight /= layer_std
+        #            layer.weight *= torch.numel(layer.weight)**-.5
 
         for batch_idx, (inputs, _, targets, _, _) in enumerate(testloader):
             if use_cuda:

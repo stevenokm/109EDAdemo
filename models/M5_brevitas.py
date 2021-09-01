@@ -60,12 +60,12 @@ class M5_BN_brevitas(nn.Module):
         #                          weight_quant=self.weight_quant)
         # self.bn6 = nn.BatchNorm2d(4 * self.n_channel)
         # self.pool6 = QuantMaxPool2d((4, 1))
-        self.fc1 = QuantLinear(4 * self.n_channel,
-                               2 * self.n_channel,
+        self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
+                               4 * self.n_channel,
                                bias=False,
                                weight_quant=self.weight_quant)
-        self.bnfc1 = nn.BatchNorm1d(2 * self.n_channel)
-        self.fc2 = QuantLinear(2 * self.n_channel,
+        self.bnfc1 = nn.BatchNorm1d(4 * self.n_channel)
+        self.fc2 = QuantLinear(4 * self.n_channel,
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -78,10 +78,11 @@ class M5_BN_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = QuantConv2d(4 * self.n_channel,
-                               4 * self.n_channel,
-                               kernel_size=self.emb_factor,
-                               weight_quant=self.weight_quant)
+        # self.emb = QuantConv2d(4 * self.n_channel,
+        #                        4 * self.n_channel,
+        #                        kernel_size=self.emb_factor,
+        #                        weight_quant=self.weight_quant)
+        self.emb = QuantIdentity(act_quant=self.act_quant)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -105,7 +106,7 @@ class M5_BN_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.emb(x)
-        x = x.view(-1, 4 * self.n_channel)
+        x = x.view(-1, 4 * self.n_channel * self.emb_factor[0])
         if __debug__:
             print(x.shape)
         x = self.fc1(x)
@@ -167,12 +168,12 @@ class M5_NOBN_brevitas(nn.Module):
         #                          weight_quant=self.weight_quant)
         # self.bn6 = QuantIdentity(act_quant=self.act_quant)
         # self.pool6 = QuantMaxPool2d((4, 1))
-        self.fc1 = QuantLinear(4 * self.n_channel,
-                               2 * self.n_channel,
+        self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
+                               4 * self.n_channel,
                                bias=False,
                                weight_quant=self.weight_quant)
         self.bnfc1 = QuantIdentity(act_quant=self.act_quant)
-        self.fc2 = QuantLinear(2 * self.n_channel,
+        self.fc2 = QuantLinear(4 * self.n_channel,
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -185,10 +186,11 @@ class M5_NOBN_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = QuantConv2d(4 * self.n_channel,
-                               4 * self.n_channel,
-                               kernel_size=self.emb_factor,
-                               weight_quant=self.weight_quant)
+        # self.emb = QuantConv2d(4 * self.n_channel,
+        #                        4 * self.n_channel,
+        #                        kernel_size=self.emb_factor,
+        #                        weight_quant=self.weight_quant)
+        self.emb = QuantIdentity(act_quant=self.act_quant)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -212,7 +214,7 @@ class M5_NOBN_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.emb(x)
-        x = x.view(-1, 4 * self.n_channel)
+        x = x.view(-1, 4 * self.n_channel * self.emb_factor[0])
         if __debug__:
             print(x.shape)
         x = self.fc1(x)
