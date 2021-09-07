@@ -1,8 +1,10 @@
+import torch.nn as nn
+
 from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
-from brevitas.nn import QuantIdentity
 from brevitas.quant.binary import SignedBinaryActPerTensorConst
 from brevitas.quant.binary import SignedBinaryWeightPerTensorConst
-import torch.nn as nn
+
+from wsconv import NegBiasLayer, WSConv2d
 
 __all__ = ['M5_brevitas']
 
@@ -60,12 +62,12 @@ class M5_BN_brevitas(nn.Module):
         #                          weight_quant=self.weight_quant)
         # self.bn6 = nn.BatchNorm2d(4 * self.n_channel)
         # self.pool6 = QuantMaxPool2d((4, 1))
-        self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
-                               4 * self.n_channel,
-                               bias=False,
-                               weight_quant=self.weight_quant)
-        self.bnfc1 = nn.BatchNorm1d(4 * self.n_channel)
-        self.fc2 = QuantLinear(4 * self.n_channel,
+        # self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
+        #                        4 * self.n_channel,
+        #                        bias=False,
+        #                        weight_quant=self.weight_quant)
+        # self.bnfc1 = nn.BatchNorm1d(4 * self.n_channel)
+        self.fc2 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -78,11 +80,12 @@ class M5_BN_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
+        self.actfc2 = QuantHardTanh(act_quant=self.act_quant)
         # self.emb = QuantConv2d(4 * self.n_channel,
         #                        4 * self.n_channel,
         #                        kernel_size=self.emb_factor,
         #                        weight_quant=self.weight_quant)
-        self.emb = QuantIdentity(act_quant=self.act_quant)
+        self.emb = nn.Identity()
 
     def forward(self, x):
         x = self.conv1(x)
@@ -109,9 +112,10 @@ class M5_BN_brevitas(nn.Module):
         x = x.view(-1, 4 * self.n_channel * self.emb_factor[0])
         if __debug__:
             print(x.shape)
-        x = self.fc1(x)
-        x = self.actfc1(self.bnfc1(x))
+        # x = self.fc1(x)
+        # x = self.actfc1(self.bnfc1(x))
         x = self.fc2(x)
+        # x = self.actfc2(x)
         return x
 
 
@@ -126,54 +130,54 @@ class M5_NOBN_brevitas(nn.Module):
         self.n_channel = n_channel
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
-        self.conv1 = QuantConv2d(input_channels,
+        self.conv1 = WSConv2d(input_channels,
                                  self.n_channel,
                                  kernel_size=(84, 1),
                                  stride=stride,
                                  weight_quant=self.weight_quant)
-        self.bn1 = QuantIdentity(act_quant=self.act_quant)
+        self.bn1 = NegBiasLayer(self.n_channel)
         self.pool1 = QuantMaxPool2d((4, 1))
-        self.conv2 = QuantConv2d(self.n_channel,
+        self.conv2 = WSConv2d(self.n_channel,
                                  self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
-        self.bn2 = QuantIdentity(act_quant=self.act_quant)
+        self.bn2 = NegBiasLayer(self.n_channel)
         self.pool2 = QuantMaxPool2d((4, 1))
-        self.conv3 = QuantConv2d(self.n_channel,
+        self.conv3 = WSConv2d(self.n_channel,
                                  2 * self.n_channel,
                                  padding=(1, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
-        self.bn3 = QuantIdentity(act_quant=self.act_quant)
+        self.bn3 = NegBiasLayer(2 * self.n_channel)
         self.pool3 = QuantMaxPool2d((4, 1))
-        # self.conv4 = QuantConv2d(2 * self.n_channel,
+        # self.conv4 = WSConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
-        # self.bn4 = QuantIdentity(act_quant=self.act_quant)
+        # self.bn4 = NegBiasLayer(2 * self.n_channel)
         # self.pool4 = QuantMaxPool2d((4, 1))
-        self.conv5 = QuantConv2d(2 * self.n_channel,
+        self.conv5 = WSConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
                                  padding=(2, 0),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
-        self.bn5 = QuantIdentity(act_quant=self.act_quant)
+        self.bn5 = NegBiasLayer(4 * self.n_channel)
         self.pool5 = QuantMaxPool2d((4, 1))
-        # self.conv6 = QuantConv2d(4 * self.n_channel,
+        # self.conv6 = WSConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
         #                          padding=(1, 0),
         #                          kernel_size=(3, 1),
         #                          weight_quant=self.weight_quant)
-        # self.bn6 = QuantIdentity(act_quant=self.act_quant)
+        # self.bn6 = NegBiasLayer(4 * self.n_channel)
         # self.pool6 = QuantMaxPool2d((4, 1))
-        self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
-                               4 * self.n_channel,
-                               bias=False,
-                               weight_quant=self.weight_quant)
-        self.bnfc1 = QuantIdentity(act_quant=self.act_quant)
-        self.fc2 = QuantLinear(4 * self.n_channel,
+        # self.fc1 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
+        #                        4 * self.n_channel,
+        #                        bias=False,
+        #                        weight_quant=self.weight_quant)
+        # self.bnfc1 = nn.BatchNorm1d(4 * self.n_channel)
+        self.fc2 = QuantLinear(4 * self.n_channel * self.emb_factor[0],
                                num_classes,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -186,11 +190,12 @@ class M5_NOBN_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
-        # self.emb = QuantConv2d(4 * self.n_channel,
+        self.actfc2 = QuantHardTanh(act_quant=self.act_quant)
+        # self.emb = WSConv2d(4 * self.n_channel,
         #                        4 * self.n_channel,
         #                        kernel_size=self.emb_factor,
         #                        weight_quant=self.weight_quant)
-        self.emb = QuantIdentity(act_quant=self.act_quant)
+        self.emb = nn.Identity()
 
     def forward(self, x):
         x = self.conv1(x)
@@ -217,9 +222,10 @@ class M5_NOBN_brevitas(nn.Module):
         x = x.view(-1, 4 * self.n_channel * self.emb_factor[0])
         if __debug__:
             print(x.shape)
-        x = self.fc1(x)
-        x = self.actfc1(self.bnfc1(x))
+        # x = self.fc1(x)
+        # x = self.actfc1(self.bnfc1(x))
         x = self.fc2(x)
+        # x = self.actfc2(x)
         return x
 
 
