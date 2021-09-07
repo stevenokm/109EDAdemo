@@ -166,14 +166,14 @@ elif args.sess == 'M5':
     print('==> Building model.. M5_brevitas')
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=128,
+                      n_channel=96,
                       stride=4)
 elif args.sess == 'M5_wsconv':
     print('==> Building model.. M5_brevitas (with wsconv)')
     wsconv = True
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=128,
+                      n_channel=96,
                       stride=4,
                       batchnorm=False)
 elif args.sess == 'M11':
