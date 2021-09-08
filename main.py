@@ -18,6 +18,12 @@ import numpy as np
 
 import random
 
+from thop import profile as thop_profile
+from thop.vision import basic_hooks as thop_basic_hooks
+
+from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
+from brevitas.nn import QuantReLU
+
 from models.alexnet_NOMAXPOOL_brevitas import alexnet_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
 from models.M5_NOMAXPOOL_brevitas import M5_brevitas
@@ -186,9 +192,28 @@ else:
     print('==> Building model.. AlexNetOWT_BN')
     net = AlexNetOWT_BN(num_classes=num_classes,
                         input_channels=(1 << data_quantize_bits))
+
 net.to(device)
 
 summary(net, input_size=(1, (1 << data_quantize_bits), 16000, 1))
+
+brevitas_op_count_hooks = {
+    QuantConv2d: thop_basic_hooks.count_convNd,
+    QuantReLU: thop_basic_hooks.zero_ops,
+    QuantHardTanh: thop_basic_hooks.zero_ops,
+    QuantMaxPool2d: thop_basic_hooks.zero_ops,
+    QuantLinear: thop_basic_hooks.count_linear,
+}
+inputs = torch.rand(1, (1 << data_quantize_bits), 16000, 1, device=device)
+thop_model = copy.deepcopy(net)
+macs, params = thop_profile(thop_model,
+                            inputs=(inputs, ),
+                            custom_ops=brevitas_op_count_hooks)
+
+print('')
+print("#MACs/batch: {macs:d}, #Params: {params:d}".format(
+    macs=(int(macs / inputs.shape[0])), params=(int(params))))
+print('')
 
 if use_cuda:
     net = torch.nn.DataParallel(net)

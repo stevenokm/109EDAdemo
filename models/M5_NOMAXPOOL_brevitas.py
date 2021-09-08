@@ -12,7 +12,7 @@ class M5_BN_brevitas(nn.Module):
                  input_channels=1,
                  num_classes=35,
                  stride=4,
-                 n_channel=96):
+                 n_channel=128):
         super().__init__()
         self.emb_factor = (16, 1)
         self.n_channel = n_channel
@@ -83,15 +83,15 @@ class M5_BN_brevitas(nn.Module):
         #     QuantHardTanh(act_quant=self.act_quant),
         # )
         self.conv5 = QuantConv2d(2 * self.n_channel,
-                                 4 * self.n_channel,
+                                 2 * self.n_channel,
                                  bias=False,
                                  padding=(2, 0),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
-        self.bn5 = nn.BatchNorm2d(4 * self.n_channel)
+        self.bn5 = nn.BatchNorm2d(2 * self.n_channel)
         self.pool5 = nn.Sequential(
-            QuantConv2d(4 * self.n_channel,
-                        4 * self.n_channel,
+            QuantConv2d(2 * self.n_channel,
+                        2 * self.n_channel,
                         stride=(4, 1),
                         bias=False,
                         kernel_size=(4, 1),
@@ -114,7 +114,7 @@ class M5_BN_brevitas(nn.Module):
         #                 weight_quant=self.weight_quant),
         #     QuantHardTanh(act_quant=self.act_quant),
         # )
-        self.fc1 = QuantLinear(4 * self.n_channel,
+        self.fc1 = QuantLinear(2 * self.n_channel,
                                2 * self.n_channel,
                                bias=False,
                                weight_quant=self.weight_quant)
@@ -133,8 +133,8 @@ class M5_BN_brevitas(nn.Module):
         self.act5 = QuantHardTanh(act_quant=self.act_quant)
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = QuantConv2d(4 * self.n_channel,
-                               4 * self.n_channel,
+        self.emb = QuantConv2d(2 * self.n_channel,
+                               2 * self.n_channel,
                                bias=False,
                                kernel_size=self.emb_factor,
                                weight_quant=self.weight_quant)
@@ -162,7 +162,7 @@ class M5_BN_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.emb(x)
-        x = x.view(-1, 4 * self.n_channel)
+        x = x.view(-1, 2 * self.n_channel)
         if __debug__:
             print(x.shape)
         x = self.fc1(x)
