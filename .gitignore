@@ -1,7 +1,7 @@
 checkpoint/*
 !.placeholder
 results
-tags
+tags*
 sd_GSCmdV2
 export_finn
 brevitas
