@@ -4,7 +4,9 @@ from brevitas.nn import QuantLinear, QuantHardTanh, QuantMaxPool2d, QuantConv2d
 from brevitas.quant.binary import SignedBinaryActPerTensorConst
 from brevitas.quant.binary import SignedBinaryWeightPerTensorConst
 
-from wsconv import NegBiasLayer, WSConv2d
+from wsconv import WSConv2d
+
+NegBiasLayer = nn.Identity
 
 __all__ = ['M5_brevitas']
 
@@ -16,7 +18,7 @@ class M5_BN_brevitas(nn.Module):
                  stride=4,
                  n_channel=128):
         super().__init__()
-        self.emb_factor = (16, 1)
+        self.emb_factor = (249, 1)
         self.n_channel = n_channel
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
@@ -26,21 +28,23 @@ class M5_BN_brevitas(nn.Module):
                                  stride=stride,
                                  weight_quant=self.weight_quant)
         self.bn1 = nn.BatchNorm2d(self.n_channel)
-        self.pool1 = QuantMaxPool2d((4, 1))
+        self.pool1 = QuantMaxPool2d((2, 1))
         self.conv2 = QuantConv2d(self.n_channel,
                                  self.n_channel,
+                                 dilation=(1, 1),
                                  padding=(2, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn2 = nn.BatchNorm2d(self.n_channel)
-        self.pool2 = QuantMaxPool2d((4, 1))
+        self.pool2 = QuantMaxPool2d((2, 1))
         self.conv3 = QuantConv2d(self.n_channel,
                                  2 * self.n_channel,
                                  padding=(1, 0),
+                                 dilation=(1, 1),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn3 = nn.BatchNorm2d(2 * self.n_channel)
-        self.pool3 = QuantMaxPool2d((4, 1))
+        self.pool3 = QuantMaxPool2d((2, 1))
         # self.conv4 = QuantConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
         #                          padding=(1, 0),
@@ -51,10 +55,11 @@ class M5_BN_brevitas(nn.Module):
         self.conv5 = QuantConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
                                  padding=(2, 0),
+                                 dilation=(1, 1),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
         self.bn5 = nn.BatchNorm2d(4 * self.n_channel)
-        self.pool5 = QuantMaxPool2d((4, 1))
+        self.pool5 = QuantMaxPool2d((2, 1))
         # self.conv6 = QuantConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
         #                          padding=(1, 0),
@@ -126,7 +131,7 @@ class M5_NOBN_brevitas(nn.Module):
                  stride=4,
                  n_channel=128):
         super().__init__()
-        self.emb_factor = (16, 1)
+        self.emb_factor = (249, 1)
         self.n_channel = n_channel
         self.weight_quant = SignedBinaryWeightPerTensorConst
         self.act_quant = SignedBinaryActPerTensorConst
@@ -136,21 +141,23 @@ class M5_NOBN_brevitas(nn.Module):
                                  stride=stride,
                                  weight_quant=self.weight_quant)
         self.bn1 = NegBiasLayer(self.n_channel)
-        self.pool1 = QuantMaxPool2d((4, 1))
+        self.pool1 = QuantMaxPool2d((2, 1))
         self.conv2 = WSConv2d(self.n_channel,
                                  self.n_channel,
+                                 dilation=(1, 1),
                                  padding=(2, 0),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn2 = NegBiasLayer(self.n_channel)
-        self.pool2 = QuantMaxPool2d((4, 1))
+        self.pool2 = QuantMaxPool2d((2, 1))
         self.conv3 = WSConv2d(self.n_channel,
                                  2 * self.n_channel,
                                  padding=(1, 0),
+                                 dilation=(1, 1),
                                  kernel_size=(4, 1),
                                  weight_quant=self.weight_quant)
         self.bn3 = NegBiasLayer(2 * self.n_channel)
-        self.pool3 = QuantMaxPool2d((4, 1))
+        self.pool3 = QuantMaxPool2d((2, 1))
         # self.conv4 = WSConv2d(2 * self.n_channel,
         #                          2 * self.n_channel,
         #                          padding=(1, 0),
@@ -161,10 +168,11 @@ class M5_NOBN_brevitas(nn.Module):
         self.conv5 = WSConv2d(2 * self.n_channel,
                                  4 * self.n_channel,
                                  padding=(2, 0),
+                                 dilation=(1, 1),
                                  kernel_size=(3, 1),
                                  weight_quant=self.weight_quant)
         self.bn5 = NegBiasLayer(4 * self.n_channel)
-        self.pool5 = QuantMaxPool2d((4, 1))
+        self.pool5 = QuantMaxPool2d((2, 1))
         # self.conv6 = WSConv2d(4 * self.n_channel,
         #                          4 * self.n_channel,
         #                          padding=(1, 0),

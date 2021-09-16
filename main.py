@@ -26,13 +26,13 @@ from brevitas.nn import QuantReLU
 
 from models.alexnet_NOMAXPOOL_brevitas import alexnet_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
-from models.M5_brevitas import M5_brevitas
+from models.M5_NOMAXPOOL_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
 from models.end2end_brevitas import end2end_brevitas
 from utils import progress_bar
 
 import SpeechCommandDataset
-# from negbiaslayer import NegBiasLayer
+from wsconv import WSConv2d
 
 import brevitas.onnx as bo
 import brevitas.nn as qnn
@@ -206,17 +206,18 @@ else:
 
 net.to(device)
 
-summary(net, input_size=(1, (1 << data_quantize_bits), 16000, 1))
-
 brevitas_op_count_hooks = {
     QuantConv2d: thop_basic_hooks.count_convNd,
+    WSConv2d: thop_basic_hooks.count_convNd,
     QuantReLU: thop_basic_hooks.zero_ops,
     QuantHardTanh: thop_basic_hooks.zero_ops,
     QuantMaxPool2d: thop_basic_hooks.zero_ops,
     QuantLinear: thop_basic_hooks.count_linear,
 }
-inputs = torch.rand(1, (1 << data_quantize_bits), 16000, 1, device=device)
+input_size = (1, (1 << data_quantize_bits), 16000, 1)
+inputs = torch.rand(size=input_size, device=device)
 thop_model = copy.deepcopy(net)
+summary(thop_model, input_size=input_size)
 macs, params = thop_profile(thop_model,
                             inputs=(inputs, ),
                             custom_ops=brevitas_op_count_hooks)
@@ -225,6 +226,9 @@ print('')
 print("#MACs/batch: {macs:d}, #Params: {params:d}".format(
     macs=(int(macs / inputs.shape[0])), params=(int(params))))
 print('')
+
+del thop_model
+torch.cuda.empty_cache()
 
 if use_cuda:
     net = torch.nn.DataParallel(net)
@@ -335,11 +339,15 @@ def train(epoch):
         correct += predicted.eq(targets.data).cpu().sum()
         correct = correct.item()
 
+        # progress_bar(
+        #     batch_idx, len(trainloader),
+        #     'Loss: %.3f | P loss: %.3f | Acc: %.3f%% (%d/%d)' %
+        #     (train_loss /
+        #      (batch_idx + 1), p_loss, 100. * correct / total, correct, total))
         progress_bar(
-            batch_idx, len(trainloader),
-            'Loss: %.3f | P loss: %.3f | Acc: %.3f%% (%d/%d)' %
+            batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
             (train_loss /
-             (batch_idx + 1), p_loss, 100. * correct / total, correct, total))
+             (batch_idx + 1), 100. * correct / total, correct, total))
 
     return (train_loss / batch_idx, 100. * correct / total)
 
@@ -355,6 +363,7 @@ def test(epoch):
 
     with torch.no_grad():
 
+        print("#")
         for layer in test_model.modules():
             if isinstance(layer, qnn.QuantConv2d) or isinstance(
                     layer, qnn.QuantLinear):

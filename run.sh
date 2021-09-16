@@ -56,7 +56,7 @@ export CUDA_VISIBLE_DEVICES=0
 python3.6 -O main.py \
   --batch-size 128 \
   --workers 16 \
-  --lr 0.1 \
+  --lr 0.01 \
   --epochs 5 \
   --seed 11111 \
   --sess M5 \
@@ -68,7 +68,7 @@ export CUDA_VISIBLE_DEVICES=0
 python3.6 -O main.py \
   --batch-size 128 \
   --workers 16 \
-  --lr 0.1 \
+  --lr 0.01 \
   --epochs 5 \
   --seed 11111 \
   --sess M5_wsconv \
