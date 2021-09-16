@@ -101,21 +101,28 @@ def load_speechcommands_item(
         else:
             waveform_int16 = torch.from_numpy(
                 np.loadtxt(csv_filepath, dtype=np.int16, delimiter=','))
-
-        # save bins map of waveform to npy file
-        waveform_uint16 = torch.clamp(waveform_int16.to(torch.int32) + a_max,
-                                      min=0,
-                                      max=(a_max * 2 - 1)).to(torch.int64)
-        waveform_bins = (waveform_uint16 >> (16 - data_quantize_bits))
-        waveform_binsmap = F.one_hot(
-            waveform_bins, num_classes=(1 << data_quantize_bits)).squeeze()
-        if __debug__:
-            print(sample_rate, metadata.num_frames, waveform_binsmap.shape,
-                  label)
-        waveform_binsmap = torch.transpose(waveform_binsmap, 1,
-                                           0).unsqueeze(-1).to(torch.float32)
-        if cache:
-            np.save(bins_npy_filepath, waveform_binsmap.numpy())
+        if data_quantize_bits > 0:
+            # save bins map of waveform to npy file
+            waveform_uint16 = torch.clamp(waveform_int16.to(torch.int32) +
+                                          a_max,
+                                          min=0,
+                                          max=(a_max * 2 - 1)).to(torch.int64)
+            waveform_bins = (waveform_uint16 >> (16 - data_quantize_bits))
+            waveform_binsmap = F.one_hot(
+                waveform_bins,
+                num_classes=(1 << data_quantize_bits)).squeeze()
+            if __debug__:
+                print(sample_rate, metadata.num_frames, waveform_binsmap.shape,
+                      label)
+            waveform_binsmap = torch.transpose(
+                waveform_binsmap, 1, 0).unsqueeze(-1).to(torch.float32)
+            if cache:
+                np.save(bins_npy_filepath, waveform_binsmap.numpy())
+        else:
+            # Load audio with normalization
+            # transform buffered csv to normalization waveform
+            waveform_binsmap = torch.unsqueeze(
+                waveform_int16.to(torch.float32) / a_max, 0).unsqueeze(-1)
     else:
         waveform_binsmap = torch.from_numpy(np.load(bins_npy_filepath))
     return waveform_binsmap, sample_rate, catDict.get(

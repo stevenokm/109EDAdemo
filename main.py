@@ -100,7 +100,7 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 task = '12cmd'
-data_quantize_bits = 4  # in power of 2, 0 <= bins <= 16
+data_quantize_bits = 0  # in power of 2, 0 < bins <= 16, 0 if no data quantize
 wsconv = False
 
 if use_cuda:
