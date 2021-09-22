@@ -28,8 +28,11 @@ from models.alexnet_NOMAXPOOL_brevitas import alexnet_brevitas
 from models.alexnet_binary import AlexNetOWT_BN
 from models.M5_NOMAXPOOL_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
+from models.end2end_brevitas import end2end_brevitas
 from utils import progress_bar
+
 import SpeechCommandDataset
+from wsconv import WSConv2d
 
 import brevitas.onnx as bo
 import brevitas.nn as qnn
@@ -90,6 +93,10 @@ parser.add_argument('--noise',
                     default=0.0,
                     type=float,
                     help='scale of injected noises')
+parser.add_argument('--p_factor',
+                    default=0.1,
+                    type=float,
+                    help='factor of p params regularization')
 
 args = parser.parse_args()
 
@@ -106,7 +113,7 @@ best_acc = 0  # best test accuracy
 batch_size = args.batch_size
 base_learning_rate = args.lr
 task = '12cmd'
-data_quantize_bits = 4  # in power of 2, 0 <= bins <= 16
+data_quantize_bits = 0  # in power of 2, 0 < bins <= 16, 0 if no data quantize
 wsconv = False
 
 if use_cuda:
@@ -172,14 +179,14 @@ elif args.sess == 'M5':
     print('==> Building model.. M5_brevitas')
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=96,
+                      n_channel=64,
                       stride=4)
 elif args.sess == 'M5_wsconv':
     print('==> Building model.. M5_brevitas (with wsconv)')
     wsconv = True
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=96,
+                      n_channel=64,
                       stride=4,
                       batchnorm=False)
 elif args.sess == 'M11':
@@ -188,6 +195,10 @@ elif args.sess == 'M11':
                        input_channels=(1 << data_quantize_bits),
                        n_channel=64,
                        stride=4)
+elif args.sess == 'end2end':
+    print('==> Building model.. end2end_brevitas')
+    net = end2end_brevitas(num_classes=num_classes,
+                           input_channels=(1 << data_quantize_bits))
 else:
     print('==> Building model.. AlexNetOWT_BN')
     net = AlexNetOWT_BN(num_classes=num_classes,
@@ -195,7 +206,29 @@ else:
 
 net.to(device)
 
-summary(net, input_size=(1, (1 << data_quantize_bits), 16000, 1))
+brevitas_op_count_hooks = {
+    QuantConv2d: thop_basic_hooks.count_convNd,
+    WSConv2d: thop_basic_hooks.count_convNd,
+    QuantReLU: thop_basic_hooks.zero_ops,
+    QuantHardTanh: thop_basic_hooks.zero_ops,
+    QuantMaxPool2d: thop_basic_hooks.zero_ops,
+    QuantLinear: thop_basic_hooks.count_linear,
+}
+input_size = (1, (1 << data_quantize_bits), 16000, 1)
+inputs = torch.rand(size=input_size, device=device)
+thop_model = copy.deepcopy(net)
+summary(thop_model, input_size=input_size)
+macs, params = thop_profile(thop_model,
+                            inputs=(inputs, ),
+                            custom_ops=brevitas_op_count_hooks)
+
+print('')
+print("#MACs/batch: {macs:d}, #Params: {params:d}".format(
+    macs=(int(macs / inputs.shape[0])), params=(int(params))))
+print('')
+
+del thop_model
+torch.cuda.empty_cache()
 
 brevitas_op_count_hooks = {
     QuantConv2d: thop_basic_hooks.count_convNd,
@@ -268,12 +301,26 @@ def train(epoch):
         inputs, targets = Variable(inputs), Variable(targets)
         outputs = net(inputs)
 
-        loss = criterion(outputs, targets)
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        loss = criterion(outputs, targets)
 
+        if __debug__:
+            print("#")
+            print("# before")
+            with torch.no_grad():
+                for layer in net.modules():
+                    if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                            layer, qnn.QuantLinear):
+                        layer_mean = torch.mean(layer.weight)
+                        layer_quant_mean = torch.mean(layer.quant_weight())
+                        print(
+                            layer.__module__, layer_mean, layer_quant_mean,
+                            torch.abs(layer_mean) -
+                            torch.abs(layer_quant_mean))
+
+        p_loss = 0.0
         # if wsconv:
+        #     all_p_params = torch.zeros(1, device=device)
         #     with torch.no_grad():
         #         for layer in net.modules():
         #             if isinstance(layer, qnn.QuantConv2d) or isinstance(
@@ -282,6 +329,27 @@ def train(epoch):
         #                 layer.weight -= layer_mean
         #                 layer.weight /= layer_std
         #                 layer.weight *= torch.numel(layer.weight)**-.5
+        #             elif isinstance(layer, NegBiasLayer):
+        #                 all_p_params = torch.cat(
+        #                     (all_p_params, layer.bias.data))
+        #     p_loss = args.p_factor * torch.norm(all_p_params, 1)
+        #     loss += p_loss
+
+        if __debug__:
+            print("# after")
+            with torch.no_grad():
+                for layer in net.modules():
+                    if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                            layer, qnn.QuantLinear):
+                        layer_mean = torch.mean(layer.weight)
+                        layer_quant_mean = torch.mean(layer.quant_weight())
+                        print(
+                            layer.__module__, layer_mean, layer_quant_mean,
+                            torch.abs(layer_mean) -
+                            torch.abs(layer_quant_mean))
+
+        loss.backward()
+        optimizer.step()
 
         train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
@@ -289,6 +357,11 @@ def train(epoch):
         correct += predicted.eq(targets.data).cpu().sum()
         correct = correct.item()
 
+        # progress_bar(
+        #     batch_idx, len(trainloader),
+        #     'Loss: %.3f | P loss: %.3f | Acc: %.3f%% (%d/%d)' %
+        #     (train_loss /
+        #      (batch_idx + 1), p_loss, 100. * correct / total, correct, total))
         progress_bar(
             batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
             (train_loss /
@@ -304,35 +377,36 @@ def test(epoch):
     correct = 0
     total = 0
 
+    test_model = copy.deepcopy(net)
+
     with torch.no_grad():
 
-        if wsconv:
-            for layer in net.modules():
+        print("#")
+        for layer in test_model.modules():
+            if isinstance(layer, qnn.QuantConv2d) or isinstance(
+                    layer, qnn.QuantLinear):
+                layer_mean = torch.abs(torch.mean(layer.weight))
+                layer_quant_mean = torch.abs(torch.mean(layer.quant_weight()))
+                print(layer.__module__, layer_mean, layer_quant_mean,
+                      layer_mean - layer_quant_mean)
+
+        if args.noise > 0.0:
+            for layer in test_model.modules():
                 if isinstance(layer, qnn.QuantConv2d) or isinstance(
                         layer, qnn.QuantLinear):
-                    layer_std, layer_mean = torch.std_mean(layer.weight)
-                    layer.weight -= layer_mean
-                    layer.weight /= layer_std
-                    layer.weight *= torch.numel(layer.weight)**-.5
+                    layer.weight += torch.normal(mean=0.0,
+                                                 std=(args.noise**2),
+                                                 size=layer.weight.size(),
+                                                 dtype=layer.weight.dtype,
+                                                 layout=layer.weight.layout,
+                                                 device=layer.weight.device)
 
         for batch_idx, (inputs, _, targets, _, _) in enumerate(testloader):
             if use_cuda:
                 inputs, targets = inputs.cuda(), targets.cuda()
             inputs, targets = Variable(inputs), Variable(targets)
 
-            if args.noise > 0.0:
-                for layer in net.modules():
-                    if isinstance(layer, qnn.QuantConv2d) or isinstance(
-                            layer, qnn.QuantLinear):
-                        layer.weight += torch.normal(
-                            mean=0.0,
-                            std=(args.noise**2),
-                            size=layer.weight.size(),
-                            dtype=layer.weight.dtype,
-                            layout=layer.weight.layout,
-                            device=layer.weight.device)
-
-            outputs = net(inputs)
+            outputs = test_model(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
@@ -346,6 +420,9 @@ def test(epoch):
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (test_loss /
                  (batch_idx + 1), 100. * correct / total, correct, total))
+
+    del test_model
+    torch.cuda.empty_cache()
 
     # Save checkpoint.
     acc = 100. * correct / total
