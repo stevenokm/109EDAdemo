@@ -52,24 +52,24 @@
 #  --export_finn \
 #  $@
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 python3.6 -O main.py \
   --batch-size 128 \
   --workers 16 \
-  --lr 0.01 \
-  --epochs 5 \
+  --lr 0.005 \
+  --epochs 20 \
   --seed 11111 \
   --sess M5 \
   --export_finn \
   --optimizer SGD \
   $@
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 python3.6 -O main.py \
   --batch-size 128 \
   --workers 16 \
-  --lr 0.01 \
-  --epochs 5 \
+  --lr 0.005 \
+  --epochs 20 \
   --seed 11111 \
   --sess M5_wsconv \
   --export_finn \

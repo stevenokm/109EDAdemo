@@ -121,8 +121,7 @@ def load_speechcommands_item(
         else:
             # Load audio with normalization
             # transform buffered csv to normalization waveform
-            waveform_binsmap = torch.unsqueeze(
-                waveform_int16.to(torch.float32) / a_max, 0).unsqueeze(-1)
+            waveform_binsmap = torch.unsqueeze(waveform_int16, 0).unsqueeze(-1)
     else:
         waveform_binsmap = torch.from_numpy(np.load(bins_npy_filepath))
     return waveform_binsmap, sample_rate, catDict.get(
