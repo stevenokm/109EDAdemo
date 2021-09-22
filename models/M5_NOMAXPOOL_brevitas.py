@@ -18,7 +18,7 @@ class M5_BN_brevitas(nn.Module):
                  input_channels=1,
                  num_classes=35,
                  stride=4,
-                 n_channel=128):
+                 n_channel=96):
         super().__init__()
         conv_function = QuantConv2d
         bn_function = nn.BatchNorm2d
@@ -180,7 +180,7 @@ class M5_BN_brevitas(nn.Module):
         if __debug__:
             print(x.shape)
         x = self.emb(x)
-        x = x.view(-1, 2 * self.n_channel)
+        x = x.view(-1, 4 * self.n_channel)
         if __debug__:
             print(x.shape)
         # x = self.fc1(x)
