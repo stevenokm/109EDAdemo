@@ -49,6 +49,7 @@ def load_speechcommands_item(
         filepath: str,
         path: str,
         catDict: dict,
+        mem_fault: str,
         cache: bool = True,
         data_quantize_bits: int = 4) -> Tuple[Tensor, int, str, str, int]:
     relpath = os.path.relpath(filepath, path)
@@ -72,6 +73,10 @@ def load_speechcommands_item(
 
     csv_filepath = filepath + '.csv'
     bins_npy_filepath = csv_filepath + '.bins.npy'
+    # generate faulty waveform and repaired waveform
+    faulty_csv_filepath = filepath + '_fault.csv'
+    repaired_n_csv_filepath = filepath + '_repaired_n.csv'
+    repaired_s_csv_filepath = filepath + '_repaired_s.csv'
 
     # max magnatude of int16 (32768)
     a_max = (1 << ((8 * 2) - 1))
@@ -98,9 +103,58 @@ def load_speechcommands_item(
                        waveform_int16.numpy(),
                        fmt='%d',
                        delimiter=',')
+            # generate faulty waveform (MSB: 15th bit; LSB: 0th bit; faulty bit: 13)
+            faulty_mask = np.full_like(waveform_int16, 1 << 13)
+            waveform_int16_faulty = np.bitwise_or(waveform_int16, faulty_mask)
+            np.savetxt(faulty_csv_filepath,
+                       waveform_int16_faulty.numpy(),
+                       fmt='%d',
+                       delimiter=',')
+            # generate repaired waveform (repair the faulty bit with its neighbor bit: 12)
+            neighbor_mask = np.full_like(waveform_int16, 1 << 12)
+            waveform_int16_neighbor = np.bitwise_and(waveform_int16,
+                                                     neighbor_mask)
+            waveform_int16_neighbor = np.left_shift(waveform_int16_neighbor, 1)
+            repaired_mask = np.invert(faulty_mask)
+            waveform_int16_repaired = np.bitwise_and(waveform_int16,
+                                                     repaired_mask)
+            waveform_int16_repaired_n = np.bitwise_or(waveform_int16_repaired,
+                                                      waveform_int16_neighbor)
+            np.savetxt(repaired_n_csv_filepath,
+                       waveform_int16_repaired_n.numpy(),
+                       fmt='%d',
+                       delimiter=',')
+            # generate repaired waveform (repair the faulty bit with its sign bit: 15)
+            sign_mask = np.full_like(waveform_int16, 1 << 15)
+            waveform_int16_sign = np.bitwise_and(waveform_int16, sign_mask)
+            waveform_int16_sign = np.right_shift(waveform_int16_sign, 2)
+            waveform_int16_repaired_s = np.bitwise_or(waveform_int16_repaired,
+                                                      waveform_int16_sign)
+            np.savetxt(repaired_s_csv_filepath,
+                       waveform_int16_repaired_s.numpy(),
+                       fmt='%d',
+                       delimiter=',')
         else:
             waveform_int16 = torch.from_numpy(
                 np.loadtxt(csv_filepath, dtype=np.int16, delimiter=','))
+            waveform_int16_faulty = torch.from_numpy(
+                np.loadtxt(faulty_csv_filepath, dtype=np.int16, delimiter=','))
+            waveform_int16_repaired_n = torch.from_numpy(
+                np.loadtxt(repaired_n_csv_filepath,
+                           dtype=np.int16,
+                           delimiter=','))
+            waveform_int16_repaired_s = torch.from_numpy(
+                np.loadtxt(repaired_s_csv_filepath,
+                           dtype=np.int16,
+                           delimiter=','))
+
+        if mem_fault == "faulty":
+            waveform_int16 = waveform_int16_faulty
+        elif mem_fault == "reparied_n":
+            waveform_int16 = waveform_int16_repaired_n
+        elif mem_fault == "reparied_s":
+            waveform_int16 = waveform_int16_repaired_s
+
         if data_quantize_bits > 0:
             # save bins map of waveform to npy file
             waveform_uint16 = torch.clamp(waveform_int16.to(torch.int32) +
@@ -132,6 +186,7 @@ class SpeechCommandDataset(SPEECHCOMMANDS):
     def __init__(self,
                  subset: str = None,
                  task: str = None,
+                 mem_fault: str = "baseline",
                  cache: bool = True,
                  data_quantize_bits: int = 4):
 
@@ -249,6 +304,7 @@ class SpeechCommandDataset(SPEECHCOMMANDS):
         self.num_classes = numGSCmdV2Categs
         self.catDict = GSCmdV2Categs
         self.cache = cache
+        self.mem_fault = mem_fault
 
         def load_list(filename):
             filepath = os.path.join(self._path, filename)
@@ -279,4 +335,5 @@ class SpeechCommandDataset(SPEECHCOMMANDS):
         """
         fileid = self._walker[n]
         return load_speechcommands_item(fileid, self._path, self.catDict,
-                                        self.cache, self.data_quantize_bits)
+                                        self.cache, self.mem_fault,
+                                        self.data_quantize_bits)

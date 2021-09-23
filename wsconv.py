@@ -5,7 +5,7 @@ import torch
 from torch.nn import Parameter, Module, init
 from torch import Tensor
 
-from brevitas.nn import QuantConv2d
+from brevitas.nn import QuantConv2d, QuantLinear
 from brevitas.quant_tensor import QuantTensor
 from brevitas.inject.defaults import Int8WeightPerTensorFloat
 from brevitas.nn.quant_layer import WeightQuantType, BiasQuantType, ActQuantType
@@ -65,6 +65,39 @@ class WSConv2d(QuantConv2d):
             padding=padding,
             dilation=dilation,
             groups=groups,
+            bias=bias,
+            weight_quant=weight_quant,
+            bias_quant=bias_quant,
+            input_quant=input_quant,
+            output_quant=output_quant,
+            return_quant_tensor=return_quant_tensor,
+            **kwargs)
+
+    def forward(self, input: Union[Tensor, QuantTensor]) -> Union[Tensor, QuantTensor]:
+
+        layer_std, layer_mean = torch.std_mean(self.weight.data)
+        self.weight.data = self.weight.data - layer_mean
+        self.weight.data = self.weight.data / layer_std
+        self.weight.data = self.weight.data * torch.numel(self.weight.data)**-.5
+        return self.forward_impl(input)
+
+class WSLinear(QuantLinear):
+
+    def __init__(
+            self,
+            in_features: int,
+            out_features: int,
+            bias: bool,
+            weight_quant: Optional[WeightQuantType] = Int8WeightPerTensorFloat,
+            bias_quant: Optional[BiasQuantType] = None,
+            input_quant: Optional[ActQuantType] = None,
+            output_quant: Optional[ActQuantType] = None,
+            return_quant_tensor: bool = False,
+            **kwargs) -> None:
+        QuantLinear.__init__(
+            self,
+            in_features=in_features,
+            out_features=out_features,
             bias=bias,
             weight_quant=weight_quant,
             bias_quant=bias_quant,

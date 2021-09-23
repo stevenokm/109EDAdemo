@@ -1,11 +1,18 @@
 from __future__ import print_function
 
+# NOTE: import onnx before torch
+# reference: https://github.com/onnx/onnx/issues/2394#issuecomment-581638840
+import onnx
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
+
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
 from torchinfo import summary
 
@@ -29,10 +36,14 @@ from models.alexnet_binary import AlexNetOWT_BN
 from models.M5_NOMAXPOOL_brevitas import M5_brevitas
 from models.M11_brevitas import M11_brevitas
 from models.end2end_brevitas import end2end_brevitas
+from models.bnn_pynq.models import cnv_1w1a as cnv_1w1a_base
+from models.bnn_pynq.wsconv import cnv_1w1a as cnv_1w1a_wsconv
+
 from utils import progress_bar
 
 import SpeechCommandDataset
-from wsconv import WSConv2d
+from CIFARDataset import CIFAR10
+from wsconv import WSConv2d, WSLinear
 
 import brevitas.onnx as bo
 import brevitas.nn as qnn
@@ -52,6 +63,10 @@ parser.add_argument('--resume',
                     help='resume from checkpoint')
 parser.add_argument('--sess', default='default', type=str, help='session id')
 parser.add_argument('--optimizer', default='SGD', type=str, help='optimizer')
+parser.add_argument('--mem_fault',
+                    default='baseline',
+                    type=str,
+                    help='mem fault pattern')
 parser.add_argument('--seed', default=11111, type=int, help='rng seed')
 parser.add_argument('--decay',
                     default=1e-4,
@@ -100,6 +115,8 @@ parser.add_argument('--p_factor',
 
 args = parser.parse_args()
 
+print("args: ", args)
+
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -122,46 +139,135 @@ if use_cuda:
     batch_size *= n_gpu
     base_learning_rate *= n_gpu
 
-# Data SPEECHCOMMANDS
-print('==> Preparing SPEECHCOMMANDS data..')
+# class MirrorMNIST(MNIST):
+#     resources = [
+#         ("https://ossci-datasets.s3.amazonaws.com/mnist/train-images-idx3-ubyte.gz",
+#          "f68b3c2dcbeaaa9fbdd348bbdeb94873"),
+#         ("https://ossci-datasets.s3.amazonaws.com/mnist/train-labels-idx1-ubyte.gz",
+#          "d53e105ee54ea40749a09fcbcd1e9432"),
+#         ("https://ossci-datasets.s3.amazonaws.com/mnist/t10k-images-idx3-ubyte.gz",
+#          "9fb629c4189551a2d022fa330f9573f3"),
+#         ("https://ossci-datasets.s3.amazonaws.com/mnist/t10k-labels-idx1-ubyte.gz",
+#          "ec29112dd5afa0611ce80d1b7f02629c")
+#     ]
+#
+#     # required by torchvision <= 0.4.2
+#     urls = [l for l, h in resources]
 
-train_dataset = SpeechCommandDataset.SpeechCommandDataset(
-    "training",
-    task,
-    data_quantize_bits=data_quantize_bits,
-    cache=args.dataset_cache)
-for i in range(args.duplicate - 1):
-    train_dataset = torch.utils.data.ConcatDataset([
-        train_dataset,
-        SpeechCommandDataset.SpeechCommandDataset(
-            "training",
-            task,
-            data_quantize_bits=data_quantize_bits,
-            cache=args.dataset_cache)
-    ])
+if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+    # # Data MirrorMNIST
+    # print('==> Preparing MirrorMNIST data..')
 
-train_sampler = None
+    # transform_to_tensor = transforms.Compose([transforms.ToTensor()])
 
-trainloader = torch.utils.data.DataLoader(train_dataset,
-                                          batch_size=batch_size,
-                                          shuffle=(train_sampler is None),
-                                          num_workers=args.workers,
-                                          pin_memory=True,
-                                          sampler=train_sampler)
+    # train_dataset = MirrorMNIST(root="./MNIST",
+    #                             train=True,
+    #                             download=True,
+    #                             transform=transform_to_tensor)
+    # for i in range(args.duplicate - 1):
+    #     train_dataset = torch.utils.data.ConcatDataset([
+    #         train_dataset,
+    #         MirrorMNIST(root="./MNIST",
+    #                     train=True,
+    #                     download=True,
+    #                     transform=transform_to_tensor)
+    #     ])
 
-test_dataset = SpeechCommandDataset.SpeechCommandDataset(
-    "testing",
-    task,
-    data_quantize_bits=data_quantize_bits,
-    cache=args.dataset_cache)
+    # test_dataset = MirrorMNIST(root="./MNIST",
+    #                            train=False,
+    #                            download=True,
+    #                            transform=transform_to_tensor)
 
-testloader = torch.utils.data.DataLoader(test_dataset,
-                                         batch_size=100,
-                                         shuffle=False,
-                                         num_workers=args.workers,
-                                         pin_memory=True)
+    train_transforms_list = [
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor()
+    ]
+    transform_train = transforms.Compose(train_transforms_list)
+    transform_to_tensor = transforms.Compose([transforms.ToTensor()])
 
-num_classes = test_dataset.num_classes
+    train_dataset = CIFAR10(root="./CIFAR10",
+                            train=True,
+                            download=True,
+                            mem_fault=args.mem_fault,
+                            transform=transform_train)
+    for i in range(args.duplicate - 1):
+        train_dataset = torch.utils.data.ConcatDataset([
+            train_dataset,
+            CIFAR10(root="./CIFAR10",
+                    train=True,
+                    download=True,
+                    mem_fault=args.mem_fault,
+                    transform=transform_train)
+        ])
+
+    test_dataset = CIFAR10(root="./CIFAR10",
+                           train=False,
+                           download=True,
+                           mem_fault=args.mem_fault,
+                           transform=transform_to_tensor)
+
+    train_sampler = None
+
+    trainloader = torch.utils.data.DataLoader(train_dataset,
+                                              batch_size=batch_size,
+                                              shuffle=(train_sampler is None),
+                                              num_workers=args.workers,
+                                              pin_memory=True,
+                                              sampler=train_sampler)
+
+    testloader = torch.utils.data.DataLoader(test_dataset,
+                                             batch_size=100,
+                                             shuffle=False,
+                                             num_workers=args.workers,
+                                             pin_memory=True)
+
+    num_classes = 10
+
+else:
+    # Data SPEECHCOMMANDS
+    print('==> Preparing SPEECHCOMMANDS data..')
+
+    train_dataset = SpeechCommandDataset.SpeechCommandDataset(
+        "training",
+        task,
+        data_quantize_bits=data_quantize_bits,
+        mem_fault=args.mem_fault,
+        cache=args.dataset_cache)
+    for i in range(args.duplicate - 1):
+        train_dataset = torch.utils.data.ConcatDataset([
+            train_dataset,
+            SpeechCommandDataset.SpeechCommandDataset(
+                "training",
+                task,
+                data_quantize_bits=data_quantize_bits,
+                mem_fault=args.mem_fault,
+                cache=args.dataset_cache)
+        ])
+
+    train_sampler = None
+
+    trainloader = torch.utils.data.DataLoader(train_dataset,
+                                              batch_size=batch_size,
+                                              shuffle=(train_sampler is None),
+                                              num_workers=args.workers,
+                                              pin_memory=False,
+                                              sampler=train_sampler)
+
+    test_dataset = SpeechCommandDataset.SpeechCommandDataset(
+        "testing",
+        task,
+        data_quantize_bits=data_quantize_bits,
+        mem_fault=args.mem_fault,
+        cache=args.dataset_cache)
+
+    testloader = torch.utils.data.DataLoader(test_dataset,
+                                             batch_size=100,
+                                             shuffle=False,
+                                             num_workers=args.workers,
+                                             pin_memory=False)
+
+    num_classes = test_dataset.num_classes
 
 # Model
 start_epoch = 0
@@ -189,6 +295,13 @@ elif args.sess == 'M5_wsconv':
                       n_channel=64,
                       stride=4,
                       batchnorm=False)
+elif args.sess == 'cnv_1w1a':
+    print('==> Building model.. cnv_1w1a_brevitas')
+    net = cnv_1w1a_base(pretrained=False)
+elif args.sess == 'cnv_1w1a_wsconv':
+    print('==> Building model.. cnv_1w1a_brevitas (with wsconv)')
+    wsconv = True
+    net = cnv_1w1a_wsconv(pretrained=False)
 elif args.sess == 'M11':
     print('==> Building model.. M11_brevitas')
     net = M11_brevitas(num_classes=num_classes,
@@ -213,8 +326,12 @@ brevitas_op_count_hooks = {
     QuantHardTanh: thop_basic_hooks.zero_ops,
     QuantMaxPool2d: thop_basic_hooks.zero_ops,
     QuantLinear: thop_basic_hooks.count_linear,
+    WSLinear: thop_basic_hooks.count_linear,
 }
-input_size = (1, (1 << data_quantize_bits), 16000, 1)
+if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+    input_size = (1, 3, 32, 32)
+else:
+    input_size = (1, (1 << data_quantize_bits), 16000, 1)
 inputs = torch.rand(size=input_size, device=device)
 thop_model = copy.deepcopy(net)
 summary(thop_model, input_size=input_size)
@@ -275,9 +392,15 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, _, targets, _, _) in enumerate(trainloader):
+    for batch_idx, data in enumerate(trainloader):
+        if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+            (inputs, targets) = data
+        else:
+            (inputs, _, targets, _, _) = data
+
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
+            inputs = inputs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
 
         # Baseline Implementation
         inputs, targets = Variable(inputs), Variable(targets)
@@ -383,9 +506,16 @@ def test(epoch):
                                                  layout=layer.weight.layout,
                                                  device=layer.weight.device)
 
-        for batch_idx, (inputs, _, targets, _, _) in enumerate(testloader):
+        for batch_idx, data in enumerate(testloader):
+            if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                (inputs, targets) = data
+            else:
+                (inputs, _, targets, _, _) = data
+
             if use_cuda:
-                inputs, targets = inputs.cuda(), targets.cuda()
+                inputs = inputs.to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
+
             inputs, targets = Variable(inputs), Variable(targets)
 
             outputs = test_model(inputs)
@@ -439,9 +569,7 @@ def checkpoint(acc, epoch):
         torch_model = copy.deepcopy(net)
         if use_cuda:
             torch_model = torch_model.to('cpu').module
-        bo.export_finn_onnx(torch_model,
-                            (1, (1 << data_quantize_bits), 16000, 1),
-                            export_file_temp_path)
+        bo.export_finn_onnx(torch_model, input_size, export_file_temp_path)
         finn_model = ModelWrapper(export_file_temp_path)
         finn_model = finn_model.transform(InferShapes())
         finn_model = finn_model.transform(FoldConstants())
@@ -453,20 +581,28 @@ def checkpoint(acc, epoch):
 
 def adjust_learning_rate(optimizer, epoch):
     """decrease the learning rate at 100 and 150 epoch"""
-
-    lr = base_learning_rate
-    if epoch >= 10:
-        lr /= 10
-    if epoch >= 30:
-        lr /= 10
-    if epoch >= 50:
-        lr /= 10
-    if epoch >= 60:
-        lr /= 10
-    if epoch >= 80:
-        lr /= 10
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+    if args.sess != 'cnv_1w1a' and args.sess != 'cnv_1w1a_wsconv':
+        lr = base_learning_rate
+        if epoch >= 20:
+            lr /= 10
+        if epoch >= 40:
+            lr /= 10
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+    else:
+        lr = base_learning_rate
+        if epoch >= 10:
+            lr /= 10
+        if epoch >= 30:
+            lr /= 10
+        if epoch >= 50:
+            lr /= 10
+        if epoch >= 60:
+            lr /= 10
+        if epoch >= 80:
+            lr /= 10
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
 
 
 if not os.path.exists(logname):
