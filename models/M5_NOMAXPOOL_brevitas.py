@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from brevitas.nn import QuantLinear, QuantHardTanh, QuantConv2d, QuantIdentity
@@ -138,9 +139,9 @@ class M5_BN_brevitas(nn.Module):
         # MultiThreshol-Add absorption
         self.actpre = QuantIdentity(
             act_quant=CommonActQuant,
-            bit_width=16,
+            bit_width=8,
             min_val=-1.0,
-            max_val=1.0 - 2.0**(-15),
+            max_val=1.0 - 2.0**(-7),
             narrow_range=False,
             restrict_scaling_type=RestrictValueType.POWER_OF_TWO)
         self.act1 = QuantHardTanh(act_quant=self.act_quant)
@@ -151,13 +152,17 @@ class M5_BN_brevitas(nn.Module):
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc2 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = conv_function(4 * self.n_channel,
-                                 4 * self.n_channel,
-                                 kernel_size=self.emb_factor,
-                                 weight_quant=self.weight_quant)
+        self.emb = nn.Sequential(
+            conv_function(4 * self.n_channel,
+                          4 * self.n_channel,
+                          kernel_size=self.emb_factor,
+                          weight_quant=self.weight_quant),
+            QuantHardTanh(act_quant=self.act_quant),
+        )
         # self.emb = nn.Identity()
 
     def forward(self, x):
+        x = 2.0 * x - torch.tensor([1.0], device=x.device)
         x = self.actpre(x)
         x = self.conv1(x)
         x = self.act1(self.bn1(x))
@@ -315,9 +320,9 @@ class M5_NOBN_brevitas(nn.Module):
         # MultiThreshol-Add absorption
         self.actpre = QuantIdentity(
             act_quant=CommonActQuant,
-            bit_width=16,
+            bit_width=8,
             min_val=-1.0,
-            max_val=1.0 - 2.0**(-15),
+            max_val=1.0 - 2.0**(-7),
             narrow_range=False,
             restrict_scaling_type=RestrictValueType.POWER_OF_TWO)
         self.act1 = QuantHardTanh(act_quant=self.act_quant)
@@ -328,13 +333,17 @@ class M5_NOBN_brevitas(nn.Module):
         self.act6 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc1 = QuantHardTanh(act_quant=self.act_quant)
         self.actfc2 = QuantHardTanh(act_quant=self.act_quant)
-        self.emb = conv_function(4 * self.n_channel,
-                                 4 * self.n_channel,
-                                 kernel_size=self.emb_factor,
-                                 weight_quant=self.weight_quant)
+        self.emb = nn.Sequential(
+            conv_function(4 * self.n_channel,
+                          4 * self.n_channel,
+                          kernel_size=self.emb_factor,
+                          weight_quant=self.weight_quant),
+            QuantHardTanh(act_quant=self.act_quant),
+        )
         # self.emb = nn.Identity()
 
     def forward(self, x):
+        x = 2.0 * x - torch.tensor([1.0], device=x.device)
         x = self.actpre(x)
         x = self.conv1(x)
         x = self.act1(self.bn1(x))

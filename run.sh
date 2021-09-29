@@ -1,6 +1,6 @@
 
 #find sd_GSCmdV2/ -type f -name '*.bins.npy' -delete
-find sd_GSCmdV2/ -type f -name '*.csv' -delete
+#find sd_GSCmdV2/ -type f -name '*.csv' -delete
 
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 #python3.6 -O main.py \
@@ -52,17 +52,17 @@ find sd_GSCmdV2/ -type f -name '*.csv' -delete
 #  --export_finn \
 #  $@
 
-#export CUDA_VISIBLE_DEVICES=2
-#python3.6 -O main.py \
-#  --batch-size 128 \
-#  --workers 16 \
-#  --lr 0.005 \
-#  --epochs 20 \
-#  --seed 11111 \
-#  --sess M5 \
-#  --export_finn \
-#  --optimizer SGD \
-#  $@
+export CUDA_VISIBLE_DEVICES=2
+python3.6 -O main.py \
+  --batch-size 128 \
+  --workers 16 \
+  --lr 0.005 \
+  --epochs 20 \
+  --seed 11111 \
+  --sess M5 \
+  --export_finn \
+  --optimizer SGD \
+  $@
 
 #export CUDA_VISIBLE_DEVICES=2
 #python3.6 -O main.py \
@@ -100,18 +100,18 @@ find sd_GSCmdV2/ -type f -name '*.csv' -delete
 #  --optimizer SGD \
 #  $@
 
-export CUDA_VISIBLE_DEVICES=1
-python3.6 -O main.py \
-  --batch-size 256 \
-  --workers 16 \
-  --lr 0.02 \
-  --epochs 20 \
-  --duplicate 10 \
-  --seed 11111 \
-  --sess cnv_1w1a \
-  --export_finn \
-  --optimizer Adam \
-  $@
+#export CUDA_VISIBLE_DEVICES=1
+#python3.6 -O main.py \
+#  --batch-size 256 \
+#  --workers 16 \
+#  --lr 0.02 \
+#  --epochs 20 \
+#  --duplicate 10 \
+#  --seed 11111 \
+#  --sess cnv_1w1a \
+#  --export_finn \
+#  --optimizer Adam \
+#  $@
 
 #export CUDA_VISIBLE_DEVICES=1
 #python3.6 -O main.py \

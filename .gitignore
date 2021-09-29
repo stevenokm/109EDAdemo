@@ -137,3 +137,7 @@ dmypy.json
 .pyre/
 
 CIFAR10
+
+*.cpp
+node_model
+compile.sh

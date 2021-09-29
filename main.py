@@ -3,6 +3,7 @@ from __future__ import print_function
 # NOTE: import onnx before torch
 # reference: https://github.com/onnx/onnx/issues/2394#issuecomment-581638840
 import onnx
+import onnx.numpy_helper as nph
 
 import torch
 import torch.nn as nn
@@ -20,6 +21,7 @@ import os
 import argparse
 import csv
 import copy
+import apt
 
 import numpy as np
 
@@ -49,11 +51,13 @@ import brevitas.onnx as bo
 import brevitas.nn as qnn
 
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.onnx_exec import execute_onnx
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.general import RemoveStaticGraphInputs
+from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 
 parser = argparse.ArgumentParser(
     description='PyTorch Complement Objective Training (COT)')
@@ -112,6 +116,9 @@ parser.add_argument('--p_factor',
                     default=0.1,
                     type=float,
                     help='factor of p params regularization')
+parser.add_argument('--pynq',
+                    action='store_true',
+                    help='perform model inference on pynq')
 
 args = parser.parse_args()
 
@@ -128,10 +135,18 @@ use_cuda = torch.cuda.is_available()
 device = 'cuda' if use_cuda else 'cpu'
 best_acc = 0  # best test accuracy
 batch_size = args.batch_size
+test_batch_size = 100
 base_learning_rate = args.lr
 task = '12cmd'
 data_quantize_bits = 0  # in power of 2, 0 < bins <= 16, 0 if no data quantize
 wsconv = False
+# set up the following values according to your own environment
+# FINN will use ssh to deploy and run the generated accelerator
+ip = os.getenv("PYNQ_IP", "cad74-pynq")
+username = os.getenv("PYNQ_USERNAME", "xilinx")
+password = os.getenv("PYNQ_PASSWORD", "xilinx")
+port = os.getenv("PYNQ_PORT", 22)
+target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/KWS_deploy")
 
 if use_cuda:
     # data parallel
@@ -139,6 +154,8 @@ if use_cuda:
     batch_size *= n_gpu
     base_learning_rate *= n_gpu
 
+if args.pynq:
+    test_batch_size = 1
 # class MirrorMNIST(MNIST):
 #     resources = [
 #         ("https://ossci-datasets.s3.amazonaws.com/mnist/train-images-idx3-ubyte.gz",
@@ -217,7 +234,7 @@ if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
                                               sampler=train_sampler)
 
     testloader = torch.utils.data.DataLoader(test_dataset,
-                                             batch_size=100,
+                                             batch_size=test_batch_size,
                                              shuffle=False,
                                              num_workers=args.workers,
                                              pin_memory=True)
@@ -262,7 +279,7 @@ else:
         cache=args.dataset_cache)
 
     testloader = torch.utils.data.DataLoader(test_dataset,
-                                             batch_size=100,
+                                             batch_size=test_batch_size,
                                              shuffle=False,
                                              num_workers=args.workers,
                                              pin_memory=False)
@@ -285,14 +302,14 @@ elif args.sess == 'M5':
     print('==> Building model.. M5_brevitas')
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=64,
+                      n_channel=48,
                       stride=4)
 elif args.sess == 'M5_wsconv':
     print('==> Building model.. M5_brevitas (with wsconv)')
     wsconv = True
     net = M5_brevitas(num_classes=num_classes,
                       input_channels=(1 << data_quantize_bits),
-                      n_channel=64,
+                      n_channel=48,
                       stride=4,
                       batchnorm=False)
 elif args.sess == 'cnv_1w1a':
@@ -544,6 +561,165 @@ def test(epoch):
     return (test_loss / batch_idx, 100. * correct / total)
 
 
+def test_pynq(epoch):
+    # check 'sshpass' is installed
+    cache = apt.Cache()
+    assert cache[
+        'sshpass'].is_installed, "package \'sshpass\' is not installed."
+
+    global best_acc
+    test_loss = 0
+    correct = 0
+    total = 0
+
+    checkpoint_name = 'ckpt.t7.' + args.sess + '_' + str(args.seed) + '.pth'
+    hls_file_name = checkpoint_name + '.finn_ready_for_hls_conversion.onnx'
+    hls_file_path = './export_finn/' + hls_file_name
+    dataflow_parent_file_name = checkpoint_name + '.finn_dataflow_parent.onnx'
+    dataflow_parent_file_path = './export_finn/' + dataflow_parent_file_name
+    for_cppsim_file_name = checkpoint_name + '.finn_dram_for_cppsim.onnx'
+    for_cppsim_file_path = './export_finn/' + for_cppsim_file_name
+    synth_file_name = checkpoint_name + '.finn_synth.onnx'
+    synth_file_path = './export_finn/' + synth_file_name
+    deploy_file_name = checkpoint_name + '.pynq_deploy.onnx'
+    deploy_file_path = './export_finn/' + deploy_file_name
+
+    if not os.path.isdir('export_finn'):
+        os.mkdir('export_finn')
+
+    # verify for hls
+    print('==> Verify ready for HLS')
+
+    finn_hls_model = ModelWrapper(hls_file_path)
+
+    with torch.no_grad():
+        for batch_idx, data in enumerate(testloader):
+            if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                (inputs, targets) = data
+            else:
+                (inputs, _, targets, _, _) = data
+
+            # batch size for test_pynq is 1
+            # recover to uint8 for hls verification
+            inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
+                torch.float32).numpy()
+            input_dict = {"global_in": inputs_numpy}
+            ret = execute_onnx(finn_hls_model, input_dict, True)
+            outputs = ret["global_out"]
+            outputs = torch.squeeze(torch.nn.functional.one_hot(
+                torch.from_numpy(outputs), num_classes).to(torch.float32),
+                                    dim=1)
+            loss = criterion(outputs, targets)
+
+            test_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += targets.size(0)
+            correct += predicted.eq(targets.data).cpu().sum()
+            correct = correct.item()
+
+            progress_bar(
+                batch_idx, len(testloader),
+                'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (test_loss /
+                 (batch_idx + 1), 100. * correct / total, correct, total))
+            break
+
+    # verify for cpp
+    print('==> Verify cppsim')
+
+    parent_model = ModelWrapper(dataflow_parent_file_path)
+    sdp_node = parent_model.graph.node[1]
+    child_model = for_cppsim_file_path
+    getCustomOp(sdp_node).set_nodeattr("model", child_model)
+
+    with torch.no_grad():
+        for batch_idx, data in enumerate(testloader):
+            if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                (inputs, targets) = data
+            else:
+                (inputs, _, targets, _, _) = data
+
+            # batch size for test_pynq is 1
+            # recover to uint8 for hls verification
+            inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
+                torch.float32).numpy()
+            input_dict = {"global_in": inputs_numpy}
+            ret = execute_onnx(parent_model, input_dict, True)
+            outputs = ret["global_out"]
+            outputs = torch.squeeze(torch.nn.functional.one_hot(
+                torch.from_numpy(outputs), num_classes).to(torch.float32),
+                                    dim=1)
+            loss = criterion(outputs, targets)
+
+            test_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += targets.size(0)
+            correct += predicted.eq(targets.data).cpu().sum()
+            correct = correct.item()
+
+            progress_bar(
+                batch_idx, len(testloader),
+                'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (test_loss /
+                 (batch_idx + 1), 100. * correct / total, correct, total))
+
+    # verify on FPGA
+    print('==> Verify on FPGA')
+
+    if not os.path.isfile(deploy_file_path):
+        finn_model = ModelWrapper(synth_file_path)
+        finn_model = finn_model.transform(
+            DeployToPYNQ(ip, port, username, password, target_dir))
+        finn_model.save(deploy_file_path)
+
+    finn_model = ModelWrapper(deploy_file_path)
+    finn_model.set_metadata_prop("pynq_ip", ip)
+    finn_model.set_metadata_prop("pynq_port", str(port))
+    iname = finn_model.graph.input[0].name
+    oname = finn_model.graph.output[0].name
+    ishape = finn_model.get_tensor_shape(iname)
+
+    target_dir_pynq = finn_model.get_metadata_prop("pynq_deployment_dir")
+    if not os.path.isdir(target_dir_pynq):
+        os.makedirs(target_dir_pynq)
+    print(target_dir_pynq)
+
+    with torch.no_grad():
+        for batch_idx, data in enumerate(testloader):
+            if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                (inputs, targets) = data
+            else:
+                (inputs, _, targets, _, _) = data
+
+            # batch size for test_pynq is 1
+            inputs_numpy = inputs.numpy().transpose(0, 2, 3, 1)
+            input_dict = {
+                iname: inputs_numpy.astype(np.float32).reshape(ishape)
+            }
+            ret = execute_onnx(finn_model, input_dict, True)
+            outputs = ret[oname]
+            loss = criterion(torch.from_numpy(outputs), targets)
+
+            test_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += targets.size(0)
+            correct += predicted.eq(targets.data).cpu().sum()
+            correct = correct.item()
+
+            progress_bar(
+                batch_idx, len(testloader),
+                'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (test_loss /
+                 (batch_idx + 1), 100. * correct / total, correct, total))
+
+    # Save checkpoint.
+    acc = 100. * correct / total
+    if acc > best_acc and args.train:
+        best_acc = acc
+        checkpoint(acc, epoch)
+    return (test_loss / batch_idx, 100. * correct / total)
+
+
 def checkpoint(acc, epoch):
     # Save checkpoint.
     print('Saving..')
@@ -563,7 +739,7 @@ def checkpoint(acc, epoch):
             os.mkdir('export_finn')
         export_file_temp_name = checkpoint_name + '.onnx'
         export_file_temp_path = './export_finn/' + export_file_temp_name
-        export_file_name = checkpoint_name + '.finn.onnx'
+        export_file_name = checkpoint_name + '.tidy.onnx'
         export_file_path = './export_finn/' + export_file_name
 
         torch_model = copy.deepcopy(net)
@@ -617,8 +793,14 @@ if not args.train:
 for epoch in range(start_epoch, args.epochs):
     adjust_learning_rate(optimizer, epoch)
     if args.train:
-        train_loss, train_acc = train(epoch)
-    test_loss, test_acc = test(epoch)
+        if args.pynq:
+            print("specified --pynq, skip train")
+        else:
+            train_loss, train_acc = train(epoch)
+    if args.pynq:
+        test_loss, test_acc = test_pynq(epoch)
+    else:
+        test_loss, test_acc = test(epoch)
     if args.train:
         with open(logname, 'a') as logfile:
             logwriter = csv.writer(logfile, delimiter=',')

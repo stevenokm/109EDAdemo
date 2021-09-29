@@ -46,12 +46,8 @@ numGSCmdV2Categs = 21
 
 
 def load_speechcommands_item(
-        filepath: str,
-        path: str,
-        catDict: dict,
-        mem_fault: str,
-        cache: bool = True,
-        data_quantize_bits: int = 4) -> Tuple[Tensor, int, str, str, int]:
+        filepath: str, path: str, catDict: dict, cache: bool, mem_fault: str,
+        data_quantize_bits: int) -> Tuple[Tensor, int, str, str, int]:
     relpath = os.path.relpath(filepath, path)
     label, filename = os.path.split(relpath)
     # Besides the officially supported split method for datasets defined by
@@ -84,7 +80,9 @@ def load_speechcommands_item(
     metadata = torchaudio.info(filepath)
     sample_rate = metadata.sample_rate
 
-    if not os.path.isfile(bins_npy_filepath) or not cache:
+    if os.path.isfile(bins_npy_filepath) and cache:
+        waveform_binsmap = torch.from_numpy(np.load(bins_npy_filepath))
+    else:
         if not os.path.isfile(csv_filepath):
             # Load audio with normalization
             waveform, sample_rate = torchaudio.load(filepath)
@@ -103,50 +101,59 @@ def load_speechcommands_item(
                        waveform_int16.numpy(),
                        fmt='%d',
                        delimiter=',')
-            # generate faulty waveform (MSB: 15th bit; LSB: 0th bit; faulty bit: 13)
-            faulty_mask = np.full_like(waveform_int16, 1 << 13)
-            waveform_int16_faulty = np.bitwise_or(waveform_int16, faulty_mask)
+            # generate faulty waveform (MSB: 15th bit; LSB: 0th bit; faulty bit: 12)
+            faulty_mask = torch.from_numpy(
+                np.full_like(waveform_int16, 1 << 12))
+            waveform_int16_faulty = torch.bitwise_or(waveform_int16,
+                                                     faulty_mask)
             np.savetxt(faulty_csv_filepath,
                        waveform_int16_faulty.numpy(),
                        fmt='%d',
                        delimiter=',')
-            # generate repaired waveform (repair the faulty bit with its neighbor bit: 12)
-            neighbor_mask = np.full_like(waveform_int16, 1 << 12)
-            waveform_int16_neighbor = np.bitwise_and(waveform_int16,
-                                                     neighbor_mask)
-            waveform_int16_neighbor = np.left_shift(waveform_int16_neighbor, 1)
-            repaired_mask = np.invert(faulty_mask)
-            waveform_int16_repaired = np.bitwise_and(waveform_int16,
-                                                     repaired_mask)
-            waveform_int16_repaired_n = np.bitwise_or(waveform_int16_repaired,
-                                                      waveform_int16_neighbor)
+            # generate repaired waveform (repair the faulty bit with its neighbor bit: 11)
+            neighbor_mask = torch.from_numpy(
+                np.full_like(waveform_int16, 1 << 11))
+            waveform_int16_neighbor = torch.bitwise_and(
+                waveform_int16, neighbor_mask)
+            waveform_int16_neighbor = waveform_int16_neighbor << 1
+            repaired_mask = torch.logical_not(faulty_mask)
+            waveform_int16_repaired = torch.bitwise_and(
+                waveform_int16, repaired_mask)
+            waveform_int16_repaired_n = torch.bitwise_or(
+                waveform_int16_repaired, waveform_int16_neighbor)
             np.savetxt(repaired_n_csv_filepath,
                        waveform_int16_repaired_n.numpy(),
                        fmt='%d',
                        delimiter=',')
             # generate repaired waveform (repair the faulty bit with its sign bit: 15)
-            sign_mask = np.full_like(waveform_int16, 1 << 15)
-            waveform_int16_sign = np.bitwise_and(waveform_int16, sign_mask)
-            waveform_int16_sign = np.right_shift(waveform_int16_sign, 2)
-            waveform_int16_repaired_s = np.bitwise_or(waveform_int16_repaired,
-                                                      waveform_int16_sign)
+            sign_mask = torch.from_numpy(np.full_like(waveform_int16, 1 << 15))
+            waveform_int16_sign = torch.bitwise_and(waveform_int16, sign_mask)
+            waveform_int16_sign = waveform_int16_sign >> 3
+            waveform_int16_repaired_s = torch.bitwise_or(
+                waveform_int16_repaired, waveform_int16_sign)
             np.savetxt(repaired_s_csv_filepath,
                        waveform_int16_repaired_s.numpy(),
                        fmt='%d',
                        delimiter=',')
         else:
-            waveform_int16 = torch.from_numpy(
-                np.loadtxt(csv_filepath, dtype=np.int16, delimiter=','))
-            waveform_int16_faulty = torch.from_numpy(
-                np.loadtxt(faulty_csv_filepath, dtype=np.int16, delimiter=','))
-            waveform_int16_repaired_n = torch.from_numpy(
-                np.loadtxt(repaired_n_csv_filepath,
-                           dtype=np.int16,
-                           delimiter=','))
-            waveform_int16_repaired_s = torch.from_numpy(
-                np.loadtxt(repaired_s_csv_filepath,
-                           dtype=np.int16,
-                           delimiter=','))
+            if mem_fault == "faulty":
+                waveform_int16_faulty = torch.from_numpy(
+                    np.loadtxt(faulty_csv_filepath,
+                               dtype=np.int16,
+                               delimiter=','))
+            elif mem_fault == "reparied_n":
+                waveform_int16_repaired_n = torch.from_numpy(
+                    np.loadtxt(repaired_n_csv_filepath,
+                               dtype=np.int16,
+                               delimiter=','))
+            elif mem_fault == "reparied_s":
+                waveform_int16_repaired_s = torch.from_numpy(
+                    np.loadtxt(repaired_s_csv_filepath,
+                               dtype=np.int16,
+                               delimiter=','))
+            else:
+                waveform_int16 = torch.from_numpy(
+                    np.loadtxt(csv_filepath, dtype=np.int16, delimiter=','))
 
         if mem_fault == "faulty":
             waveform_int16 = waveform_int16_faulty
@@ -154,6 +161,8 @@ def load_speechcommands_item(
             waveform_int16 = waveform_int16_repaired_n
         elif mem_fault == "reparied_s":
             waveform_int16 = waveform_int16_repaired_s
+
+        waveform_int16 = torch.squeeze(waveform_int16)
 
         if data_quantize_bits > 0:
             # save bins map of waveform to npy file
@@ -173,11 +182,17 @@ def load_speechcommands_item(
             if cache:
                 np.save(bins_npy_filepath, waveform_binsmap.numpy())
         else:
-            # Load audio with normalization
-            # transform buffered csv to normalization waveform
-            waveform_binsmap = torch.unsqueeze(waveform_int16, 0).unsqueeze(-1)
-    else:
-        waveform_binsmap = torch.from_numpy(np.load(bins_npy_filepath))
+            # Load audio with float encoded uint8 (as like as ToTensor)
+            # transform buffered csv to uint8 waveform
+            waveform_uint16 = torch.clamp(waveform_int16.to(torch.int32) +
+                                          a_max,
+                                          min=0,
+                                          max=(a_max * 2 - 1)).to(torch.int64)
+            waveform_uint8 = (waveform_uint16 >> 8).to(torch.uint8)
+            # finn.util.pytorch.ToTensor (uint8 -> normalized float)
+            waveform_uint8_norm = waveform_uint8.to(torch.float) / 255.0
+            waveform_binsmap = torch.unsqueeze(waveform_uint8_norm,
+                                               0).unsqueeze(-1)
     return waveform_binsmap, sample_rate, catDict.get(
         label, 0), speaker_id, utterance_number
 
