@@ -6,6 +6,7 @@ onnx==1.7.0
 onnxoptimizer==0.2.6
 onnxruntime==1.4.0
 protobuf==3.16.0
+thop==0.0.31.post2005241907
 toposort==1.6
 torch==1.7.1
 torchaudio==0.7.2
