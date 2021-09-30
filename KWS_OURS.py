@@ -23,12 +23,10 @@ print("args: ", args)
 
 from finn.util.basic import make_build_dir
 from finn.util.visualization import showInNetron
-    
+
 build_dir = "/workspace/finn/export_finn"
 
-
 # In[3]:
-
 
 import onnx
 from finn.util.test import get_test_model_trained
@@ -50,15 +48,11 @@ if not args.skip_ready_for_hls:
     model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_tidy.onnx")'''
     model = ModelWrapper(build_dir + "/ckpt.t7.M5_11111.pth.tidy.onnx")
 
-
 # In[4]:
-
 
 #showInNetron(build_dir + "/ckpt.t7.M5_11111_0926.pth.tidy.onnx")
 
-
 # In[5]:
-
 
 from finn.util.pytorch import ToTensor
 from finn.transformation.merge_onnx_models import MergeONNXModels
@@ -70,7 +64,7 @@ if not args.skip_ready_for_hls:
     ishape = model.get_tensor_shape(global_inp_name)
     # preprocessing: torchvision's ToTensor divides uint8 inputs by 255
     totensor_pyt = ToTensor()
-    chkpt_preproc_name = build_dir+"/ckpt.t7.M5_11111.pth.finn_preproc.onnx"
+    chkpt_preproc_name = build_dir + "/ckpt.t7.M5_11111.pth.finn_preproc.onnx"
     bo.export_finn_onnx(totensor_pyt, ishape, chkpt_preproc_name)
 
     # join preprocessing and core model
@@ -81,19 +75,16 @@ if not args.skip_ready_for_hls:
     model.set_tensor_datatype(global_inp_name, DataType.UINT8)
     #model.set_tensor_datatype(global_inp_name, DataType.INT16)
 
-
 # In[6]:
-
 
 from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.core.datatype import DataType
 
-
 if not args.skip_ready_for_hls:
     # postprocessing: insert Top-1 node at the end
     model = model.transform(InsertTopK(k=1))
-    chkpt_name = build_dir+"/ckpt.t7.M5_11111.pth.finn_pre_post.onnx"
+    chkpt_name = build_dir + "/ckpt.t7.M5_11111.pth.finn_pre_post.onnx"
     # tidy-up again
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -105,45 +96,38 @@ if not args.skip_ready_for_hls:
 
 #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_pre_post.onnx")
 
-
 # In[7]:
-
 
 from finn.util.visualization import showSrc
 from finn.transformation.streamline import Streamline
 if not args.skip_ready_for_hls:
     showSrc(Streamline)
 
-
 # In[8]:
-
 
 from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
 import finn.transformation.streamline.absorb as absorb
 
 if not args.skip_ready_for_hls:
-    model = ModelWrapper(build_dir+"/ckpt.t7.M5_11111.pth.finn_pre_post.onnx")
+    model = ModelWrapper(build_dir +
+                         "/ckpt.t7.M5_11111.pth.finn_pre_post.onnx")
     # move initial Mul (from preproc) past the Reshape
     model = model.transform(MoveScalarLinearPastInvariants())
-    chkpt_name = build_dir+"/ckpt.t7.M5_11111.pth.finn_pre_stream.onnx"
+    chkpt_name = build_dir + "/ckpt.t7.M5_11111.pth.finn_pre_stream.onnx"
     model.save(chkpt_name)
-    #no use!!the picture is the same as last one 
+    #no use!!the picture is the same as last one
     #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_pre_stream.onnx")
 
-
 # In[9]:
-
 
 if not args.skip_ready_for_hls:
     # streamline
     #model = model.transform(Streamline())
     model = model.transform(Streamline())
-    model.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_streamlined.onnx")
+    model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_streamlined.onnx")
     #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_streamlined.onnx")
 
-
 # In[10]:
-
 
 from finn.transformation.streamline import Streamline
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
@@ -153,64 +137,53 @@ from finn.transformation.streamline.reorder import MakeMaxPoolNHWC, MoveScalarLi
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.general import RemoveUnusedTensors
 
-
 if not args.skip_ready_for_hls:
-    model = ModelWrapper(build_dir+"/ckpt.t7.M5_11111.pth.finn_streamlined.onnx")
+    model = ModelWrapper(build_dir +
+                         "/ckpt.t7.M5_11111.pth.finn_streamlined.onnx")
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    model.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_before_second_streamlined.onnx")
-
+    model.save(build_dir +
+               "/ckpt.t7.M5_11111.pth.finn_before_second_streamlined.onnx")
 
 # In[11]:
 
-
 #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_before_second_streamlined.onnx")
-
 
 # In[12]:
 
-
 if not args.skip_ready_for_hls:
     model = model.transform(Streamline())
-    model.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_after_second_streamlined.onnx")
-
+    model.save(build_dir +
+               "/ckpt.t7.M5_11111.pth.finn_after_second_streamlined.onnx")
 
 # In[13]:
 
-
 #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_after_second_streamlined.onnx")
 
-
 # In[14]:
-
 
 if not args.skip_ready_for_hls:
     model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferDataLayouts())
     model = model.transform(RemoveUnusedTensors())
 
-
-    model.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_ready_for_hls_conversion.onnx")
+    model.save(build_dir +
+               "/ckpt.t7.M5_11111.pth.finn_ready_for_hls_conversion.onnx")
 
 if args.ready_for_hls:
     exit()
 
-
 # In[15]:
-
 
 #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_ready_for_hls_conversion.onnx")
 
-
 # In[16]:
-
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
+    CreateDataflowPartition, )
 
 if not args.skip_cppsim:
     """
@@ -241,26 +214,23 @@ if not args.skip_cppsim:
     # choose the memory mode for the MVTU units, decoupled or const
     mem_mode = "decoupled"
 
-    model = ModelWrapper(build_dir + "/ckpt.t7.M5_11111.pth.finn_ready_for_hls_conversion.onnx")
+    model = ModelWrapper(
+        build_dir + "/ckpt.t7.M5_11111.pth.finn_ready_for_hls_conversion.onnx")
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
 
-
 # In[17]:
-
 
 if not args.skip_cppsim:
     # input quantization (if any) to standalone thresholding
     model = model.transform(to_hls.InferThresholdingLayer())
     model = model.transform(to_hls.InferConvInpGen())
-    model.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_test.onnx")
+    model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_test.onnx")
     #showInNetron(build_dir+"/ckpt.t7.M5_11111.pth.finn_test.onnx")
 
-
 # In[18]:
-
 
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 
@@ -274,15 +244,11 @@ if not args.skip_cppsim:
     # get rid of Tranpose -> Tranpose identity seq
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
 
-
 # In[19]:
-
 
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.BRemoveCNVtoFCFlatten.onnx")
 
-
 # In[20]:
-
 
 from finn.custom_op.registry import getCustomOp
 
@@ -290,45 +256,37 @@ if not args.skip_cppsim:
     # infer tensor data layouts
     model = model.transform(InferDataLayouts())
     parent_model = model.transform(CreateDataflowPartition())
-    parent_model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_parent.onnx")
-    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    parent_model.save(build_dir +
+                      "/ckpt.t7.M5_11111.pth.finn_dataflow_parent.onnx")
+    sdp_node = parent_model.get_nodes_by_op_type(
+        "StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     # save the dataflow partition with a different name for easier access
     dataflow_model = ModelWrapper(dataflow_model_filename)
-    dataflow_model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
-
+    dataflow_model.save(build_dir +
+                        "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
 
 # In[21]:
 
-
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
-
 
 # In[22]:
 
-
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_parent.onnx")
-
 
 # In[23]:
 
-
 #showInNetron("/tmp/finn_dev_lab2312/dataflow_partition0_ewnvlgpe/df_model.onnx")
 
-
 # In[24]:
-
-
 '''from finn.custom_op.registry import getCustomOp
 sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
 sdp_node = getCustomOp(sdp_node)
 dataflow_model_filename = sdp_node.get_nodeattr("model")
 showInNetron(dataflow_model_filename)'''
 
-
 # In[25]:
-
 
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.core.modelwrapper import ModelWrapper
@@ -345,24 +303,19 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 
 if not args.skip_cppsim:
     build_dir = "/workspace/finn/export_finn"
-    model = ModelWrapper(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
+    model = ModelWrapper(build_dir +
+                         "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-
 
 # In[26]:
 
-
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_parent.onnx")
-
 
 # In[27]:
 
-
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_dataflow_model.onnx")
 
-
 # In[28]:
-
 
 # each tuple is (PE, SIMD, in_fifo_depth, ramstyle) for a layer
 '''
@@ -392,20 +345,16 @@ folding = [
     (1, 8, 3, "block"),
 ]
 
-
 # In[29]:
-
 
 URAM_counter = 0
 
-
 # In[30]:
-
 
 if not args.skip_cppsim:
     '''for fcl, (pe, simd, ififodepth, ramstyle) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
-        
+
         if URAM_counter < 5:
             #fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
             fcl_inst.set_nodeattr("mem_mode", "external")
@@ -416,8 +365,8 @@ if not args.skip_cppsim:
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("inFIFODepth", ififodepth)'''
-        #fcl_inst.set_nodeattr("mem_mode", "external")
-        #fcl_inst.set_nodeattr("ram_style", ramstyle)
+    #fcl_inst.set_nodeattr("mem_mode", "external")
+    #fcl_inst.set_nodeattr("ram_style", ramstyle)
 
     for fcl, (pe, simd, ififodepth, ramstyle) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
@@ -425,16 +374,13 @@ if not args.skip_cppsim:
             fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
             print(URAM_counter)
         URAM_counter +=1'''
-        
+
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
-        fcl_inst.set_nodeattr("inFIFODepth", ififodepth) 
+        fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
-    
-
 
 # In[31]:
-
 
 if not args.skip_cppsim:
     URAM_counter = 0
@@ -446,18 +392,17 @@ if not args.skip_cppsim:
         print(len(swg_layers))
         simd = folding[i][1]
         #if URAM_counter < 1:
-         #   ram_style = "block"
+        #   ram_style = "block"
         #else :
         ram_style = "distributed"
         #print(URAM_counter)
         #URAM_counter +=1
-        
+
         swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", ram_style)
 
     model = model.transform(GiveUniqueNodeNames())
     model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_folded.onnx")
-
 
 #set for cppsim
 
@@ -475,7 +420,8 @@ if not args.skip_cppsim:
     model_for_cppsim = model_for_cppsim.transform(PrepareCppSim())
     model_for_cppsim = model_for_cppsim.transform(CompileCppSim())
 
-    model_for_cppsim.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_for_cppsim.onnx")
+    model_for_cppsim.save(build_dir +
+                          "/ckpt.t7.M5_11111.pth.finn_for_cppsim.onnx")
 
     fc0 = model_for_cppsim.graph.node[1]
     fc0w = getCustomOp(fc0)
@@ -483,7 +429,8 @@ if not args.skip_cppsim:
     print(code_gen_dir)
 
     model_for_cppsim = model_for_cppsim.transform(SetExecMode("cppsim"))
-    model_for_cppsim.save(build_dir+"/ckpt.t7.M5_11111.pth.finn_for_cppsim.onnx")
+    model_for_cppsim.save(build_dir +
+                          "/ckpt.t7.M5_11111.pth.finn_for_cppsim.onnx")
 
 if args.cppsim:
     exit()
@@ -503,7 +450,6 @@ if args.cppsim:
 #    print("The results are not the same!")
 
 #end of cppsim
-
 '''
 # In[32]:
 
@@ -586,8 +532,6 @@ exit()
 '''
 
 #no need the rest for now
-
-
 '''
 model = ModelWrapper(build_dir + "/ckpt.t7.M5_11111.pth.pynq_deploy.onnx")
 sdp_node_middle = getCustomOp(model.graph.node[1])
@@ -723,5 +667,3 @@ for key in res:
 # In[ ]:
 
 '''
-
-
