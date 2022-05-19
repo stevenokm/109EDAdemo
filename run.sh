@@ -77,51 +77,72 @@
 #  $@
 
 # for brevitas - finn intergration flow
-
+export CUDA_VISIBLE_DEVICES=2
+#date
+#python3 -O main.py \
+#  --batch-size 128 \
+#  --workers 16 \
+#  --lr 0.005 \
+#  --epochs 100 \
+#  --seed 11111 \
+#  --sess M5 \
+#  --export_finn \
+#  --optimizer SGD \
+#  --train
+#date
+#python3 KWS_OURS.py \
+#  --ready_for_hls \
+#date
+#python3 -O main.py \
+#  --batch-size 128 \
+#  --workers 16 \
+#  --lr 0.005 \
+#  --epochs 2 \
+#  --seed 11111 \
+#  --sess M5 \
+#  --export_finn \
+#  --optimizer SGD \
+#  --pynq \
+#  --hls_test
+#date
+#python3 KWS_OURS.py \
+#  --skip_ready_for_hls \
+#  --cppsim
+#date
+#python3 -O main.py \
+#  --batch-size 128 \
+#  --workers 16 \
+#  --lr 0.005 \
+#  --epochs 2 \
+#  --seed 11111 \
+#  --sess M5 \
+#  --export_finn \
+#  --optimizer SGD \
+#  --pynq \
+#  --cppsim
+date
+python3 KWS_OURS.py \
+  --skip_ready_for_hls \
+  --skip_cppsim \
+  --rtlsim
+date
 python3 -O main.py \
   --batch-size 128 \
   --workers 16 \
   --lr 0.005 \
-  --epochs 1 \
+  --epochs 2 \
   --seed 11111 \
   --sess M5 \
   --export_finn \
   --optimizer SGD \
-  --train
-
-#python3 KWS_OURS.py \
-#  --ready_for_hls
-#
-#python3 -O main.py \
-#  --batch-size 128 \
-#  --workers 16 \
-#  --lr 0.005 \
-#  --epochs 2 \
-#  --seed 11111 \
-#  --sess M5 \
-#  --export_finn \
-#  --optimizer SGD \
-#  --pynq
-#
-#python3 KWS_OURS.py \
-#  --skip_ready_for_hls \
-#  --cppsim
-#
-#python3 -O main.py \
-#  --batch-size 128 \
-#  --workers 16 \
-#  --lr 0.005 \
-#  --epochs 2 \
-#  --seed 11111 \
-#  --sess M5 \
-#  --export_finn \
-#  --optimizer SGD \
-#  --pynq
-#
+  --pynq \
+  --rtlsim
+date
 #python3 KWS_OURS.py \
 #  --skip_ready_for_hls \
 #  --skip_cppsim
-#
+#  --skip_rtlsim
+#date
 #python3 -O main.py \
 #  --batch-size 128 \
 #  --workers 16 \
@@ -131,8 +152,9 @@ python3 -O main.py \
 #  --sess M5 \
 #  --export_finn \
 #  --optimizer SGD \
-#  --pynq
-
+#  --pynq \
+#  --fpga
+#date
 # end for brevitas - finn intergration flow
 
 #export CUDA_VISIBLE_DEVICES=1

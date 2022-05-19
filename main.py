@@ -121,6 +121,18 @@ parser.add_argument('--p_factor',
 parser.add_argument('--pynq',
                     action='store_true',
                     help='perform model inference on pynq')
+parser.add_argument('--hls_test',
+                    action='store_true',
+                    help='perform model inference on pynq only hls_test')
+parser.add_argument('--cppsim',
+                    action='store_true',
+                    help='perform model inference on pynq only cppsim')
+parser.add_argument('--rtlsim',
+                    action='store_true',
+                    help='perform model inference on pynq only rtlsim')
+parser.add_argument('--fpga',
+                    action='store_true',
+                    help='perform model inference on pynq only deploy to fpga')
 
 args = parser.parse_args()
 
@@ -481,11 +493,6 @@ def train(epoch):
         correct += predicted.eq(targets.data).cpu().sum()
         correct = correct.item()
 
-        # progress_bar(
-        #     batch_idx, len(trainloader),
-        #     'Loss: %.3f | P loss: %.3f | Acc: %.3f%% (%d/%d)' %
-        #     (train_loss /
-        #      (batch_idx + 1), p_loss, 100. * correct / total, correct, total))
         progress_bar(
             batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
             (train_loss /
@@ -581,6 +588,8 @@ def test_pynq(epoch):
     dataflow_parent_file_path = './export_finn/' + dataflow_parent_file_name
     for_cppsim_file_name = checkpoint_name + '.finn_for_cppsim.onnx'
     for_cppsim_file_path = './export_finn/' + for_cppsim_file_name
+    for_rtlsim_file_name = checkpoint_name + '.finn_for_rtlsim.onnx'
+    for_rtlsim_file_path = './export_finn/' + for_rtlsim_file_name
     synth_file_name = checkpoint_name + '.finn_synth.onnx'
     synth_file_path = './export_finn/' + synth_file_name
     deploy_file_name = checkpoint_name + '.pynq_deploy.onnx'
@@ -590,150 +599,204 @@ def test_pynq(epoch):
         os.mkdir('export_finn')
 
     # verify for hls
-    print('==> Verify ready for HLS')
+    if args.hls_test or (not args.hls_test and not args.cppsim
+                         and not args.rtlsim and not args.fpga):
+        test_loss = 0
+        print('==> Verify ready for HLS')
 
-    if not os.path.exists(hls_file_path):
-        print(hls_file_path + 'not exist. skip.')
-    else:
-        finn_hls_model = ModelWrapper(hls_file_path)
+        if not os.path.exists(hls_file_path):
+            print(hls_file_path + 'not exist. skip.')
+        else:
+            finn_hls_model = ModelWrapper(hls_file_path)
 
-        with torch.no_grad():
-            for batch_idx, data in enumerate(testloader):
-                if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
-                    (inputs, targets) = data
-                else:
-                    (inputs, _, targets, _, _) = data
+            with torch.no_grad():
+                for batch_idx, data in enumerate(testloader):
+                    if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                        (inputs, targets) = data
+                    else:
+                        (inputs, _, targets, _, _) = data
 
-                # batch size for test_pynq is 1
-                # recover to uint8 for hls verification
-                inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
-                    torch.float32).numpy()
-                input_dict = {"global_in": inputs_numpy}
-                ret = execute_onnx(finn_hls_model, input_dict, True)
-                outputs = ret["global_out"]
-                outputs = torch.squeeze(torch.nn.functional.one_hot(
-                    torch.from_numpy(outputs), num_classes).to(torch.float32),
-                                        dim=1)
-                loss = criterion(outputs, targets)
+                    # batch size for test_pynq is 1
+                    # recover to uint8 for hls verification
+                    inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
+                        torch.float32).numpy()
+                    input_dict = {"global_in": inputs_numpy}
+                    ret = execute_onnx(finn_hls_model, input_dict, True)
+                    outputs = ret["global_out"]
+                    outputs = torch.squeeze(torch.nn.functional.one_hot(
+                        torch.from_numpy(outputs),
+                        num_classes).to(torch.float32),
+                                            dim=1)
+                    loss = criterion(outputs, targets)
 
-                test_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += targets.size(0)
-                correct += predicted.eq(targets.data).cpu().sum()
-                correct = correct.item()
+                    test_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += targets.size(0)
+                    correct += predicted.eq(targets.data).cpu().sum()
+                    correct = correct.item()
 
-                progress_bar(
-                    batch_idx, len(testloader),
-                    'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                    (test_loss /
-                     (batch_idx + 1), 100. * correct / total, correct, total))
-                print('')
-                break
+                    progress_bar(
+                        batch_idx, len(testloader),
+                        'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                        (test_loss / (batch_idx + 1), 100. * correct / total,
+                         correct, total))
 
     # verify for cpp
-    print('==> Verify cppsim')
+    if args.cppsim or (not args.hls_test and not args.cppsim
+                       and not args.rtlsim and not args.fpga):
+        test_loss = 0
+        print('==> Verify cppsim')
 
-    if not os.path.exists(for_cppsim_file_path):
-        print(for_cppsim_file_path + 'not exist. skip.')
-    else:
-        parent_model = ModelWrapper(dataflow_parent_file_path)
-        sdp_node = parent_model.graph.node[1]
-        child_model = for_cppsim_file_path
-        getCustomOp(sdp_node).set_nodeattr("model", child_model)
+        if not os.path.exists(for_cppsim_file_path):
+            print(for_cppsim_file_path + 'not exist. skip.')
+        else:
+            parent_model = ModelWrapper(dataflow_parent_file_path)
+            sdp_node = parent_model.graph.node[1]
+            child_model = for_cppsim_file_path
+            getCustomOp(sdp_node).set_nodeattr("model", child_model)
 
-        with torch.no_grad():
-            for batch_idx, data in enumerate(testloader):
-                if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
-                    (inputs, targets) = data
-                else:
-                    (inputs, _, targets, _, _) = data
+            with torch.no_grad():
+                for batch_idx, data in enumerate(testloader):
+                    if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                        (inputs, targets) = data
+                    else:
+                        (inputs, _, targets, _, _) = data
 
-                # batch size for test_pynq is 1
-                # recover to uint8 for hls verification
-                inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
-                    torch.float32).numpy()
-                input_dict = {"global_in": inputs_numpy}
-                ret = execute_onnx(parent_model, input_dict, True)
-                outputs = ret["global_out"]
-                outputs = torch.squeeze(torch.nn.functional.one_hot(
-                    torch.from_numpy(outputs), num_classes).to(torch.float32),
-                                        dim=1)
-                loss = criterion(outputs, targets)
+                    # batch size for test_pynq is 1
+                    # recover to uint8 for hls verification
+                    inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
+                        torch.float32).numpy()
+                    input_dict = {"global_in": inputs_numpy}
+                    ret = execute_onnx(parent_model, input_dict, True)
+                    outputs = ret["global_out"]
+                    outputs = torch.squeeze(torch.nn.functional.one_hot(
+                        torch.from_numpy(outputs),
+                        num_classes).to(torch.float32),
+                                            dim=1)
+                    loss = criterion(outputs, targets)
 
-                test_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += targets.size(0)
-                correct += predicted.eq(targets.data).cpu().sum()
-                correct = correct.item()
+                    test_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += targets.size(0)
+                    correct += predicted.eq(targets.data).cpu().sum()
+                    correct = correct.item()
 
-                progress_bar(
-                    batch_idx, len(testloader),
-                    'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                    (test_loss /
-                     (batch_idx + 1), 100. * correct / total, correct, total))
-                print('')
-                break
+                    progress_bar(
+                        batch_idx, len(testloader),
+                        'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                        (test_loss / (batch_idx + 1), 100. * correct / total,
+                         correct, total))
+
+    # verify for rtl
+    if args.rtlsim or (not args.hls_test and not args.cppsim
+                       and not args.rtlsim and not args.fpga):
+        test_loss = 0
+        print('==> Verify rtlsim')
+
+        if not os.path.exists(for_rtlsim_file_path):
+            print(for_rtlsim_file_path + 'not exist. skip.')
+        else:
+            parent_model = ModelWrapper(dataflow_parent_file_path)
+            child_model = for_rtlsim_file_path
+            sdp_node = getCustomOp(parent_model.graph.node[1])
+            sdp_node.set_nodeattr("model", child_model)
+
+            with torch.no_grad():
+                for batch_idx, data in enumerate(testloader):
+                    if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                        (inputs, targets) = data
+                    else:
+                        (inputs, _, targets, _, _) = data
+
+                    # batch size for test_pynq is 1
+                    # recover to uint8 for hls verification
+                    inputs_numpy = (inputs * 255.0).to(torch.uint8).to(
+                        torch.float32).numpy()
+                    input_dict = {"global_in": inputs_numpy}
+                    ret = execute_onnx(parent_model, input_dict, True)
+                    outputs = ret["global_out"]
+                    outputs = torch.squeeze(torch.nn.functional.one_hot(
+                        torch.from_numpy(outputs),
+                        num_classes).to(torch.float32),
+                                            dim=1)
+                    loss = criterion(outputs, targets)
+
+                    test_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += targets.size(0)
+                    correct += predicted.eq(targets.data).cpu().sum()
+                    correct = correct.item()
+
+                    progress_bar(
+                        batch_idx, len(testloader),
+                        'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                        (test_loss / (batch_idx + 1), 100. * correct / total,
+                         correct, total))
 
     # verify on FPGA
-    print('==> Verify on FPGA')
+    if args.fpga or (not args.hls_test and not args.cppsim and not args.rtlsim
+                     and not args.fpga):
+        test_loss = 0
+        print('==> Verify on FPGA')
 
-    if not os.path.exists(synth_file_path):
-        print(synth_file_path + 'not exist. skip.')
-    else:
-        if not os.path.isfile(deploy_file_path):
-            finn_model = ModelWrapper(synth_file_path)
-            finn_model = finn_model.transform(
-                DeployToPYNQ(ip, port, username, password, target_dir))
-            finn_model.save(deploy_file_path)
+        if not os.path.exists(synth_file_path):
+            print(synth_file_path + 'not exist. skip.')
+        else:
+            if not os.path.isfile(deploy_file_path):
+                finn_model = ModelWrapper(synth_file_path)
+                finn_model = finn_model.transform(
+                    DeployToPYNQ(ip, port, username, password, target_dir))
+                finn_model.save(deploy_file_path)
 
-        finn_model = ModelWrapper(deploy_file_path)
-        finn_model.set_metadata_prop("pynq_ip", ip)
-        finn_model.set_metadata_prop("pynq_port", str(port))
-        iname = finn_model.graph.input[0].name
-        oname = finn_model.graph.output[0].name
-        ishape = finn_model.get_tensor_shape(iname)
+            finn_model = ModelWrapper(deploy_file_path)
+            finn_model.set_metadata_prop("pynq_ip", ip)
+            finn_model.set_metadata_prop("pynq_port", str(port))
+            iname = finn_model.graph.input[0].name
+            oname = finn_model.graph.output[0].name
+            ishape = finn_model.get_tensor_shape(iname)
 
-        target_dir_pynq = finn_model.get_metadata_prop("pynq_deployment_dir")
-        if not os.path.isdir(target_dir_pynq):
-            os.makedirs(target_dir_pynq)
-        print(target_dir_pynq)
+            target_dir_pynq = finn_model.get_metadata_prop(
+                "pynq_deployment_dir")
+            if not os.path.isdir(target_dir_pynq):
+                os.makedirs(target_dir_pynq)
+            print(target_dir_pynq)
 
-        with torch.no_grad():
-            for batch_idx, data in enumerate(testloader):
-                if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
-                    (inputs, targets) = data
-                else:
-                    (inputs, _, targets, _, _) = data
+            with torch.no_grad():
+                for batch_idx, data in enumerate(testloader):
+                    if args.sess == 'cnv_1w1a' or args.sess == 'cnv_1w1a_wsconv':
+                        (inputs, targets) = data
+                    else:
+                        (inputs, _, targets, _, _) = data
 
-                # batch size for test_pynq is 1
-                inputs_numpy = inputs.numpy().transpose(0, 2, 3, 1)
-                input_dict = {
-                    iname: inputs_numpy.astype(np.float32).reshape(ishape)
-                }
-                ret = execute_onnx(finn_model, input_dict, True)
-                outputs = ret[oname]
-                loss = criterion(torch.from_numpy(outputs), targets)
+                    # batch size for test_pynq is 1
+                    inputs_numpy = inputs.numpy().transpose(0, 2, 3, 1)
+                    input_dict = {
+                        iname: inputs_numpy.astype(np.float32).reshape(ishape)
+                    }
+                    ret = execute_onnx(finn_model, input_dict, True)
+                    outputs = ret[oname]
+                    loss = criterion(torch.from_numpy(outputs), targets)
 
-                test_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += targets.size(0)
-                correct += predicted.eq(targets.data).cpu().sum()
-                correct = correct.item()
+                    test_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += targets.size(0)
+                    correct += predicted.eq(targets.data).cpu().sum()
+                    correct = correct.item()
 
-                progress_bar(
-                    batch_idx, len(testloader),
-                    'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                    (test_loss /
-                     (batch_idx + 1), 100. * correct / total, correct, total))
-                print('')
-                break
+                    progress_bar(
+                        batch_idx, len(testloader),
+                        'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                        (test_loss / (batch_idx + 1), 100. * correct / total,
+                         correct, total))
+                    print('')
+                    break
 
     ## Save checkpoint.
     #acc = 100. * correct / total
     #if acc > best_acc and args.train:
     #    best_acc = acc
     #    checkpoint(acc, epoch)
-    return (test_loss / (batch_idx + 1), 100. * correct / total)
+    return (test_loss, 100. * correct / total)
 
 
 def checkpoint(acc, epoch):

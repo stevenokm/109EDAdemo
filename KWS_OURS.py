@@ -18,6 +18,12 @@ parser.add_argument('--cppsim',
 parser.add_argument('--skip_cppsim',
                     action='store_true',
                     help='perform script without cppsim part')
+parser.add_argument('--rtlsim',
+                    action='store_true',
+                    help='perform script until rtlsim')
+parser.add_argument('--skip_rtlsim',
+                    action='store_true',
+                    help='perform script without rtlsim part')
 args = parser.parse_args()
 print("args: ", args)
 
@@ -391,12 +397,12 @@ if not args.skip_cppsim:
         swg_inst = getCustomOp(swg_layers[i])
         print(len(swg_layers))
         simd = folding[i][1]
-        #if URAM_counter < 1:
-        #   ram_style = "block"
-        #else :
-        ram_style = "distributed"
-        #print(URAM_counter)
-        #URAM_counter +=1
+        if URAM_counter < 1:
+            ram_style = "ultra"
+        else:
+            ram_style = "distributed"
+        print(URAM_counter)
+        URAM_counter += 1
 
         swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", ram_style)
@@ -435,6 +441,38 @@ if not args.skip_cppsim:
 if args.cppsim:
     exit()
 
+#set for rtlsim
+
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+
+if not args.skip_rtlsim:
+
+    test_fpga_part = "xc7z020clg400-1"
+    target_clk_ns = 10
+
+    model_for_rtlsim = ModelWrapper(build_dir +
+                                    "/ckpt.t7.M5_11111.pth.finn_folded.onnx")
+    model_for_rtlsim = model_for_rtlsim.transform(InsertDWC())
+    model_for_rtlsim = model_for_rtlsim.transform(InsertFIFO())
+    model_for_rtlsim = model_for_rtlsim.transform(GiveUniqueNodeNames())
+    model_for_rtlsim = model_for_rtlsim.transform(
+        PrepareIP(test_fpga_part, target_clk_ns))
+    model_for_rtlsim = model_for_rtlsim.transform(HLSSynthIP())
+    model_for_rtlsim = model_for_rtlsim.transform(
+        CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model_for_rtlsim = model_for_rtlsim.transform(PrepareRTLSim())
+    model_for_rtlsim.set_metadata_prop("exec_mode", "rtlsim")
+    model_for_rtlsim.save(build_dir +
+                          "/ckpt.t7.M5_11111.pth.finn_for_rtlsim.onnx")
+
+if args.rtlsim:
+    exit()
+
 #import finn.core.onnx_exec as oxe
 #parent_model = ModelWrapper(build_dir+"/ckpt.t7.M5_11111.pth.finn_dataflow_parent.onnx")
 ##sdp_node = parent_model.graph.node[1]
@@ -450,51 +488,40 @@ if args.cppsim:
 #    print("The results are not the same!")
 
 #end of cppsim
-'''
-# In[32]:
 
+# In[32]:
 
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_folded.onnx")
 
-
 # In[33]:
-
 
 # print the names of the supported PYNQ boards
 from finn.util.basic import pynq_part_map
+
 print(pynq_part_map.keys())
 
-
 # In[34]:
-
 
 # change this if you have a different PYNQ board, see list above
 pynq_board = "ZCU104"
 fpga_part = pynq_part_map[pynq_board]
 target_clk_ns = 10
 
-
 # In[35]:
 
-
-model = ModelWrapper(build_dir+"/ckpt.t7.M5_11111.pth.finn_folded.onnx")
-model = model.transform(ZynqBuild(platform = pynq_board, period_ns = target_clk_ns))
-
+model = ModelWrapper(build_dir + "/ckpt.t7.M5_11111.pth.finn_folded.onnx")
+model = model.transform(ZynqBuild(platform=pynq_board,
+                                  period_ns=target_clk_ns))
 
 # In[36]:
 
-
 model.save(build_dir + "/ckpt.t7.M5_11111.pth.finn_synth.onnx")
-
 
 # In[37]:
 
-
 #showInNetron(build_dir + "/ckpt.t7.M5_11111.pth.finn_synth.onnx")
 
-
 # In[38]:
-
 
 import os
 
@@ -511,25 +538,23 @@ options = "-o PreferredAuthentications=publickey -o PasswordAuthentication=no"
 # test access to PYNQ board
 #get_ipython().system(' ssh {options} {username}@{ip} -p {port} cat /var/run/motd.dynamic')
 
-
 # In[39]:
-
 
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 
-model = model.transform(DeployToPYNQ("192.168.0.3", "22", "xilinx", "xilinx", "/home/xilinx/finn_dev_lab2312"))
+model = model.transform(
+    DeployToPYNQ("192.168.0.3", "22", "xilinx", "xilinx",
+                 "/home/xilinx/finn_dev_lab2312"))
 model.save(build_dir + "/ckpt.t7.M5_11111.pth.pynq_deploy.onnx")
-
 
 # In[40]:
 
-
-target_dir_pynq = target_dir + "/" + model.get_metadata_prop("pynq_deployment_dir").split("/")[-1]
+target_dir_pynq = target_dir + "/" + model.get_metadata_prop(
+    "pynq_deployment_dir").split("/")[-1]
 print(target_dir_pynq)
 exit()
 
 # In[ ]:
-'''
 
 #no need the rest for now
 '''
